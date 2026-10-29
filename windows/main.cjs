@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 11255)
-Total output lines: 486
-
 'use strict';
 const {app,BrowserWindow,ipcMain,clipboard,ClipboardItem,nativeImage,protocol,net,Tray,Menu,Notification,powerMonitor,globalShortcut,screen,desktopCapturer,dialog,shell} = require('electron');
 // Electron's protocol.handle and net.fetch construct these globals lazily.
@@ -254,7 +251,54 @@ async function importFile(file) {
   if(['.mov','.mp4'].includes(extension)){
     if(stat.size>MAXIMUM_VIDEO_BYTES)throw new Error('Recording exceeds the 2 GB import limit.');
     const inspected=await mediaJobs.probe(file);
-  …1255 tokens truncated…est(token))throw new Error('Invalid shortcut recorder.');
+    try{
+      const after=fs.lstatSync(file);if(after.isSymbolicLink()||after.size!==stat.size||after.mtimeMs!==stat.mtimeMs||after.ino!==stat.ino)throw new Error('The recording changed while importing.');
+      const item=await store.insertRecording(inspected);refreshImageSearch();return item;
+    }finally{mediaJobs.release(inspected);}
+  }
+  if(stat.size>64*1024*1024)throw new Error('File exceeds import limit');
+  if(['.txt','.md'].includes(extension)) {if(stat.size>1024*1024)throw new Error('Text file exceeds import limit');const value=fs.readFileSync(file,'utf8');return store.insert(plainURL(value)?'link':'text',value);}
+  const image=nativeImage.createFromPath(file);if(image.isEmpty())throw new Error('Unsupported image file');const item=store.insert('image',image.toPNG());queueOCR(item.id);refreshImageSearch();return item;
+}
+async function capture() {
+  const wasVisible=window.isVisible();visibilityGeneration++;desiredVisible=false;shelfMotion.cancel();if(wasVisible)window.hide();viewEvent=null;broadcast({surfaceOnly:true});await shelfMotion.request('reset');
+  try{
+    // Capture only after the shelf window has left the compositor.
+    await new Promise(resolve=>setTimeout(resolve,150));
+    const display=screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    const sources=await desktopCapturer.getSources({types:['screen'],thumbnailSize:{width:Math.round(display.size.width*display.scaleFactor),height:Math.round(display.size.height*display.scaleFactor)}});
+    const source=sources.find(s=>s.display_id===String(display.id))||sources[0];if(!source||source.thumbnail.isEmpty())throw new Error('Screen capture is unavailable');
+    const item=store.insert('image',source.thumbnail.toPNG());queueOCR(item.id);refreshImageSearch();await show('shelves',{selectId:item.id,kind:'image',preview:true,crop:true});return{id:item.id};
+  }catch(error){if(wasVisible)await show(view);throw error;}
+}
+function queueOCR(id){ocrQueue.enqueue(id);}
+async function ocr(id,quiet=false){if(ocrJobs.has(id))return ocrJobs.get(id);const promise=recognize(id,quiet);ocrJobs.set(id,promise);try{return await promise;}finally{ocrJobs.delete(id);}}
+async function recognize(id,quiet=false) {
+  const item=store.item(id);if(item.kind!=='image'||item.recording)throw new Error('OCR requires a still image');
+  const file=store.mediaPath(id);const fingerprint=item.renderedFile||item.imageFile;
+  if(item.ocrText)return{text:item.ocrText,id};
+  if(!quiet)notify('Recognizing image text locallyâ€¦');
+  const {createWorker}=require('tesseract.js');
+  const languageDirectory=path.join(store.directory,'ocr-models');fs.mkdirSync(languageDirectory,{recursive:true});
+  for(const language of ['eng','tur']) {
+    const source=app.isPackaged?path.join(process.resourcesPath,'ocr-data',language,'4.0.0_best_int',language+'.traineddata.gz'):path.join(__dirname,'node_modules','@tesseract.js-data',language,'4.0.0_best_int',language+'.traineddata.gz');
+    const destination=path.join(languageDirectory,language+'.traineddata.gz');if(!fs.existsSync(destination))fs.copyFileSync(source,destination);
+  }
+  const worker=await createWorker(['eng','tur'],1,{langPath:languageDirectory,cachePath:languageDirectory,gzip:true});
+  try{let image=nativeImage.createFromPath(file);const size=image.getSize(),scale=Math.min(1,2400/Math.max(size.width,size.height));if(scale<1)image=image.resize({width:Math.round(size.width*scale),height:Math.round(size.height*scale)});const result=await worker.recognize(image.toPNG());if(!store.data.items.includes(item)||(item.renderedFile||item.imageFile)!==fingerprint)throw new Error('Image changed during recognition');item.ocrText=String(result.data.text||'').slice(0,1024*1024);store.persist();if(!quiet)notify(item.ocrText?'Image text ready':'No text found');else broadcast();return{text:item.ocrText,id};}
+  finally{await worker.terminate();}
+}
+function configureWatchers() {
+  for(const watcher of watchers)watcher.close();watchers=[];
+  for(const folder of store.data.settings.watchFolders){try{if(!fs.statSync(folder).isDirectory())continue;const timers=new Map();const watcher=fs.watch(folder,(_event,name)=>{if(!name||!/[.](png|jpe?g|webp|bmp|mov|mp4)$/i.test(name))return;clearTimeout(timers.get(name));timers.set(name,setTimeout(()=>{timers.delete(name);try{const file=path.join(folder,path.basename(name));const item=importFile(file);Promise.resolve(item).then(record=>{broadcast();if(store.data.settings.openAfterScreenshot)void show('shelves',{selectId:record.id,kind:'image'});}).catch(()=>{});}catch{}},700));});watcher.on('error',()=>{});watchers.push(watcher);}catch{}}
+}
+let shortcutRegistry,shortcutRecording=null;
+function finishShortcutRecording(token=null){
+  if(!shortcutRecording||(token!==null&&shortcutRecording.token!==token))return;
+  const current=shortcutRecording;shortcutRecording=null;current.resume();
+}
+function startShortcutRecording(token){
+  if(typeof token!=='string'||!/^[A-Za-z0-9:-]{1,100}$/.test(token))throw new Error('Invalid shortcut recorder.');
   if(shortcutRecording?.token===token)return;
   if(!window?.isVisible()||!window.isFocused())throw new Error('Focus the shortcut recorder before recording.');
   if(!shortcutRegistry)configureShortcuts();
@@ -319,7 +363,7 @@ async function command(action,payload={}) {
   }
   else if(action==='capture')result=await capture();
   else if(action==='newNote'){const item=store.insert('text',payload.text||'New note');if(payload.title)store.modify('details',{id:item.id,name:payload.title});store.modify('retain',{ids:[item.id]});result={id:item.id};}
-  else if(action==='import'){const response=await dialog.showOpenDialog(window,{properties:['openFile','multiSelections'],filters:[{name:'Images, recordings and text',extensions:['png','jpg','jpeg','webp','bmp','mov','mp4','txt','md']}]});const imported=[];for(const file of response.filePaths){const item=await importFile(file);imported.push(item.id);if(item.kind==='link')void enrich(item.id);}result={ids:imported};}
+  else if(action==='import'){const response=await dialog.showOpenDialog(window,{properties:['openFile','multiSelections'],filters:[{name:'Images, recordings and text',extensions:['png','jpg','jpeg','webp','bmp','mov','mp4','txt','md']}]});const imported=[],failures=[];for(const file of response.filePaths){try{const item=await importFile(file);imported.push(item.id);if(item.kind==='link')void enrich(item.id);}catch(error){failures.push(path.basename(file)+': '+error.message);}}result={ids:imported,failed:failures.length};if(failures.length)message=(imported.length?`Imported ${imported.length} Â· failed ${failures.length}. `:'')+failures[0];}
   else if(action==='searchImages'){if(!imageSearch)throw new Error('Offline image search is unavailable.');result=await imageSearch.search(payload.query,payload.eligibleIds);}
   else if(action==='ocr')result=await ocr(payload.id);
   else if(action==='copyOCR'){const recognized=await ocr(payload.id);if(!recognized.text.trim())throw new Error('No text found in this image.');await writeClipboard([{kind:'text',text:recognized.text}]);result=recognized;notify('Recognized text copied');}
