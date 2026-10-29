@@ -81,6 +81,9 @@ function settings(patch, previous = DEFAULTS) {
 function trashUndoFingerprint(item){return crypto.createHash('sha256').update(JSON.stringify(item)).digest('hex');}
 function trashUndoMatches(item,entry){return !!item&&item.trashedAt!=null&&item.trashedAt===entry.afterTrashedAt&&item.updatedAt===entry.afterUpdatedAt&&(item.captureRevision??null)===entry.captureRevision&&trashUndoFingerprint(item)===entry.fingerprint;}
 function availableTrashUndo(items,journal){if(!journal?.length)return false;const byID=new Map(items.map(item=>[item.id,item]));for(let index=journal.length-1;index>=0;index--)if(journal[index].some(entry=>trashUndoMatches(byID.get(entry.id),entry)))return true;return false;}
+// Match macOS cleanedName: at most 64 characters and no control characters,
+// whether a tag is added or renamed.
+const validTagName=name=>Array.from(name).length<=64&&!/[\u0000-\u001f\u007f-\u009f]/u.test(name);
 function saved(item) { return item.retainedAt != null || item.pinned || item.folderIds.length > 0 || item.tags.length > 0; }
 function plainURL(value) {
   if (typeof value !== 'string' || /\s/.test(value) || value.length > 8192) return null;
@@ -342,7 +345,7 @@ class Store {
       let name;
       if(action==='renameTag'){
         name=text(payload.name,256).trim();
-        if(!name||Array.from(name).length>64||/[\u0000-\u001f\u007f-\u009f]/u.test(name))fail('Invalid tag name');
+        if(!name||!validTagName(name))fail('Invalid tag name');
         const folded=value=>value.normalize('NFKD').replace(/\p{M}/gu,'').toLowerCase();
         if(this.data.items.some(item=>item.tags.some(value=>value!==tag&&folded(value)===folded(name))))fail('A tag with this name already exists');
       }
@@ -384,7 +387,10 @@ class Store {
         const tag=text(payload.tag,80).trim();item.tags=item.tags.filter(value=>value!==tag);
       } else if (action === 'tag') {
         if (!Array.isArray(payload.tags) || payload.tags.length > 50) fail('Invalid tags');
-        item.tags = [...new Set(payload.tags.map(tag => text(tag, 80).trim()).filter(Boolean))];
+        const tags = [...new Set(payload.tags.map(tag => text(tag, 256).trim()).filter(Boolean))];
+        // Existing longer tags stay editable; only newly added names must fit.
+        if (tags.some(tag => !item.tags.includes(tag) && !validTagName(tag))) fail('Invalid tag name');
+        item.tags = tags;
         if(item.tags.length)item.retainedAt??=now;
       } else if (action === 'remove') { if (saved(item)) item.hiddenFromShelf = true; else{item.trashedAt = now;item.trashRevision=crypto.randomUUID();} }
       else if (action === 'trash') item.trashedAt = now;
