@@ -26,6 +26,17 @@ import XCTest
         controller.close()
     }
 
+    func testClosedSettingsKeepNoViewThatWatchesTheLine() throws {
+        _ = NSApplication.shared
+        let f = try SyntheticFixture(); defer { f.cleanup() }
+        let controller = SettingsWindowController(model: SettingsModel(line: f.line(), allowsSystemChanges: false))
+        let window = try XCTUnwrap(controller.window)
+        let isHosting = { String(describing: type(of: window.contentView!)).hasPrefix("NSHostingView") }
+        XCTAssertTrue(isHosting())
+        controller.close()
+        XCTAssertFalse(isHosting(), "A closed Settings window must not keep re-rendering")
+    }
+
     func testSettingsBindingsApplyAppearanceWithoutMovingFocusOrDroppingHistory() throws {
         let f = try SyntheticFixture(); defer { f.cleanup(); Layout.size = .medium }
         let line = f.line()

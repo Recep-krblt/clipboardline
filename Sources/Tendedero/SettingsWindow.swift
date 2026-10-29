@@ -59,9 +59,16 @@ final class SettingsModel: ObservableObject {
     var languageNeedsRestart: Bool { language != launchLanguage }
     // Re-read on the existing presentation/activation refresh rather than
     // retaining a warning after the user grants access in System Settings.
-    var needsPastePermission: Bool { !pastePermissionGranted() }
+    private(set) var needsPastePermission = false
+    // Both are system queries. The view renders on every line change, so it
+    // reads these cached values instead of asking the system each time.
+    private(set) var opensAtLogin = false
 
-    func refresh() { objectWillChange.send() }
+    func refresh() {
+        needsPastePermission = !pastePermissionGranted()
+        opensAtLogin = SMAppService.mainApp.status == .enabled
+        objectWillChange.send()
+    }
     func binding<Value>(get: @escaping () -> Value, set: @escaping (Value) -> Void) -> Binding<Value> {
         Binding(get: { get() }, set: { [weak self] value in set(value); self?.refresh() })
     }
@@ -108,9 +115,16 @@ final class SettingsWindowController: NSWindowController {
         window.center()
         super.init(window: window)
         window.onBeforeMouseKeyFocus = { [weak self] in self?.onBeforeMouseKeyFocus?() }
+        NotificationCenter.default.addObserver(self, selector: #selector(windowWillClose(_:)), name: NSWindow.willCloseNotification, object: window)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    /// The window outlives closing, but its view does not: a kept view would
+    /// re-render on every line change while nobody can see it.
+    @objc private func windowWillClose(_ notification: Notification) { window?.contentView = NSView() }
     func present() {
+        if let window, !(window.contentView is NSHostingView<SettingsView>) {
+            window.contentView = NSHostingView(rootView: SettingsView(model: model, line: model.line))
+        }
         model.refresh()
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil); window?.makeKeyAndOrderFront(nil)
@@ -229,7 +243,7 @@ private struct SettingsView: View {
             }
             Section {
                 Toggle(L("Sounds"), isOn: model.binding(get: { line.soundOn }, set: { line.soundOn = $0 }))
-                Toggle(L("Open at login"), isOn: model.binding(get: { SMAppService.mainApp.status == .enabled }, set: { _ in model.changeLogin() }))
+                Toggle(L("Open at login"), isOn: model.binding(get: { model.opensAtLogin }, set: { _ in model.changeLogin() }))
                     .disabled(!model.allowsSystemChanges)
             }
         }
