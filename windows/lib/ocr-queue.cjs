@@ -15,19 +15,20 @@ class OcrQueue {
  }
  get size(){return this.items.length-this.head;}
  drainSoon(){
-  if(this.indexing||!this.size||this.closing())return;
+  if(this.indexing||!this.size||!this.enabled()||this.closing())return;
   this.indexing=true;this.schedule(()=>this.drain());
  }
  async drain(){
   try{
-   while(this.size&&!this.closing()){
+   while(this.size&&this.enabled()&&!this.closing()){
     const id=this.dequeue();
     try{await this.process(id);}catch{}
    }
   }finally{
    this.indexing=false;
-   if(this.size&&!this.closing())this.drainSoon();
+   if(this.size&&this.enabled()&&!this.closing())this.drainSoon();
   }
  }
 }
 module.exports={OcrQueue};
+
