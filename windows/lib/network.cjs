@@ -55,12 +55,20 @@ function metadataGuard(url){
   for(const key of url.searchParams.keys()){const normalized=key.toLowerCase().replace(/[^a-z0-9]/g,'');if(/^(xamz|xgoog|oauth)/.test(normalized)||sensitive.has(normalized))throw new Error('Sensitive link parameters are not fetched automatically.');}
 }
 function metadataFetch(input,options={}){return boundedFetch(input,{...options,guard:metadataGuard});}
-const entities = value => value.replace(/&(?:amp|quot|lt|gt|apos|#39|#34);/g, match => ({'&amp;':'&','&quot;':'"','&lt;':'<','&gt;':'>','&apos;':"'",'&#39;':"'",'&#34;':'"'}[match]));
+const NAMED_ENTITIES = {amp:'&',quot:'"',lt:'<',gt:'>',apos:"'",nbsp:' '};
+// Titles such as "It&#8217;s" or "A&#x2F;B" must not show raw references.
+// Invalid or control code points stay literal rather than injecting text.
+const entities = value => value.replace(/&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|(amp|quot|lt|gt|apos|nbsp));/g, (match, decimal, hex, name) => {
+  if (name) return NAMED_ENTITIES[name];
+  const code = decimal ? Number(decimal) : parseInt(hex, 16);
+  return code > 0x1f && code <= 0x10ffff && !(code >= 0x7f && code <= 0x9f) && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : match;
+});
+const collapse = value => value.replace(/\s+/g, ' ').trim();
 function meta(html, name) {
   for (const match of html.matchAll(/<meta\b([^>]{0,4096})>/gi)) {
     const attributes = {};
     for (const attr of match[1].matchAll(/([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) attributes[attr[1].toLowerCase()] = attr[2] ?? attr[3];
-    if ([attributes.property, attributes.name].includes(name)) return entities(attributes.content || '').slice(0, 1000);
+    if ([attributes.property, attributes.name].includes(name)) return collapse(entities(attributes.content || '')).slice(0, 1000);
   }
   return '';
 }
@@ -74,7 +82,7 @@ async function linkMetadata(input, fetcher = metadataFetch) {
   }
   const response = await fetcher(url.href); if (!/text\/html|application\/xhtml/i.test(response.type)) return {title: url.hostname};
   const html = response.bytes.toString('utf8');
-  const title = meta(html, 'og:title') || entities((html.match(/<title[^>]*>([\s\S]{0,2000}?)<\/title>/i)?.[1] || url.hostname).replace(/<[^>]*>/g, '')).trim();
+  const title = meta(html, 'og:title') || collapse(entities((html.match(/<title[^>]*>([\s\S]{0,2000}?)<\/title>/i)?.[1] || '').replace(/<[^>]*>/g, ''))) || url.hostname;
   let thumbnail = meta(html, 'og:image');
   if (thumbnail) try { thumbnail = new URL(thumbnail, response.url).href; } catch { thumbnail = ''; }
   return {title: title.slice(0, 500), thumbnail};
