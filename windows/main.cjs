@@ -21,6 +21,7 @@ const {mediaOrigin}=require('./lib/media-policy.cjs');
 const {mediaResponse,mediaGenerationMatches}=require('./lib/media-response.cjs');
 const {MediaJobs,MAXIMUM_VIDEO_BYTES}=require('./lib/media.cjs');
 const {copyFiles,cancelFileCopies}=require('./lib/native-files.cjs');
+const {exportCopies}=require('./lib/export-copies.cjs');
 const native = require('./lib/native.cjs');
 const {PasteTargetTracker}=require('./lib/paste-target.cjs');
 const {DragFiles}=require('./lib/drag-files.cjs');
@@ -360,16 +361,8 @@ async function command(action,payload={}) {
   else if(action==='export'){
     const selected=store.selected(ids(payload.ids));if(!selected.length)throw new Error('Select an item first');
     const response=await dialog.showOpenDialog(window,{properties:['openDirectory','createDirectory']});if(response.filePaths[0]){
-      let exported=0,failed=0;
-      for(const item of selected){try{const label=(item.name||item.title||item.kind).replace(/[<>:"/\\|?*\x00-\x1F]/g,'-').replace(/[. ]+$/g,'').slice(0,100)||item.kind;const extension=item.kind==='image'?(item.recording?path.extname(store.mediaPath(item.id)):'.png'):item.kind==='link'?'.url':'.txt';let index=1,destination;
-        do{destination=path.join(response.filePaths[0],label+(index>1?'-'+index:'')+extension);index++;}while(fs.existsSync(destination));
-        if(item.kind==='image')await fs.promises.copyFile(store.mediaPath(item.id),destination,fs.constants.COPYFILE_EXCL);
-        else fs.writeFileSync(destination,Buffer.from(item.kind==='link'?'[InternetShortcut]\r\nURL='+item.url+'\r\n':item.text),{flag:'wx'});
-        exported++;}catch{failed++;}
-      }
-      // Match the Mac export: keep copying after one failure, then report both counts.
-      if(!exported)throw new Error('Could not export copies');
-      result={count:exported,failed};message=`Exported ${exported} · failed ${failed}`;
+      const exported=await exportCopies(selected,response.filePaths[0],{mediaPath:id=>store.mediaPath(id)});
+      result={count:exported.count,failed:exported.failed};message=exported.message;
     }
   }
   else if(action==='startDrag'){

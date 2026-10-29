@@ -8,8 +8,10 @@ const path=require('node:path');
 const vm=require('node:vm');
 const crypto=require('node:crypto');
 const {execFileSync}=require('node:child_process');
+const os=require('node:os');
+const {exportCopies}=require('../lib/export-copies.cjs');
 
-function fixture({deferInitialState=false,initialVisible=true,queuedAnimationFrames=false,imageRaster={width:900,height:220},imageDocument=false}={}){
+function fixture({deferInitialState=false,initialVisible=true,queuedAnimationFrames=false,imageRaster={width:900,height:220},imageDocument=false,exporter=null}={}){
  const listeners=new Map(),nodes=new Map(),commands=[],imageLoads=[],animationFrames=[],paintCalls=[];let exportFailures=0;
  class Element{
   constructor(id=''){this.id=id;this.innerHTML='';this.textContent='';this.dataset={};this.style={};this.className='';this.value='';this.selectionStart=0;this.selectionEnd=0;this.classList={add(){},remove(){},contains(){return false;}};}
@@ -34,6 +36,8 @@ function fixture({deferInitialState=false,initialVisible=true,queuedAnimationFra
  const clone=value=>structuredClone(value);
  const api={emit(patch){Object.assign(state,patch);subscriber?.(clone(state));},surface(patch){Object.assign(state,patch);subscriber?.({surfaceOnly:true,...clone(patch)});},state:async()=>{const initial=clone(state);if(deferInitialState)await new Promise(resolve=>{releaseInitialState=resolve;});return initial;},subscribe(fn){subscriber=fn;return()=>{};},async command(action,payload={}){commands.push({action,payload:clone(payload)});const selected=state.items.filter(item=>(payload.ids||[payload.id]).includes(item.id));
   let cleanupError,trashResult;if(action==='cleanup'){if(cleanupFailures){cleanupFailures--;cleanupError='Permanent deletion cleanup is still pending.';}else state.needsDeletionCleanup=false;}
+  // Runs the shipped export implementation and reports like main.cjs does.
+  if(action==='export'&&exporter){try{state.message=(await exporter(selected)).message;}catch(error){cleanupError=error.message;}}
   if(action==='editText'){if(editFailures){editFailures--;cleanupError='Synthetic draft write failure';}else selected.forEach(item=>item.text=payload.text);}
   if(action==='setSettings'){const patch=payload.patch||{},localShortcuts={...state.settings.localShortcuts,...patch.localShortcuts};for(const [action,value]of Object.entries(localShortcuts))if(value===null)delete localShortcuts[action];state.settings={...state.settings,...patch,localShortcuts};}
   if(action==='saveImage')selected.forEach(item=>{item.crop=clone(payload.crop);item.annotations=clone(payload.annotations);});
@@ -721,4 +725,23 @@ test('a capture crop owns Enter before the next render tick can copy and hide th
  await f.key('Enter');
  assert.equal(f.commands.filter(value=>value.action==='copy').length,1,'Enter in the finished preview copies normally');
  assert.equal(f.state.windowVisible,false);
+});
+
+test('export and shortcut-conflict notices follow the selected language',async()=>{
+ const directory=fs.mkdtempSync(path.join(os.tmpdir(),'clipboardline-export-notice-')),png=path.join(directory,'source.png'),missing='00000000-0000-4000-8000-000000000005';
+ try{
+  fs.writeFileSync(png,Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==','base64'));
+  const output=path.join(directory,'export');fs.mkdirSync(output);
+  const f=fixture({exporter:selected=>exportCopies(selected,output,{mediaPath:id=>{if(id===missing)throw new Error('Image unavailable');return png;}})});await f.ready();
+  f.api.emit({settings:{...f.state.settings,language:'tr'},items:[...f.state.items,{...structuredClone(f.state.items[0]),id:missing,name:'Missing image',createdAt:500,updatedAt:500}]});await f.ready();
+  await f.key('KeyA',{ctrl:true});await f.key('KeyE',{ctrl:true,shift:true});await f.ready();
+  const exportCommand=f.commands.find(value=>value.action==='export');assert.equal(exportCommand.payload.ids.length,2);
+  assert.deepEqual(fs.readdirSync(output),['Synthetic image.png']);
+  assert.equal(f.state.message,'Exported 1 · failed 1');
+  assert.equal(f.nodes.get('toast').textContent,'1 dışa aktarıldı · 1 başarısız');
+  f.api.emit({message:'Copied'});await f.ready();assert.equal(f.nodes.get('toast').textContent,'Kopyalandı');
+  f.api.emit({message:'Synthetic untranslated notice'});await f.ready();assert.equal(f.nodes.get('toast').textContent,'Synthetic untranslated notice');
+  await f.api.command('settings');await f.ready();await f.click('record-local',{keyAction:'pin'});await f.key('KeyS');await f.click('confirm-modal');
+  assert.equal(f.nodes.get('toast').textContent,"Bu kısayol Çöp Kutusu'na taşı için zaten kullanılıyor");
+ }finally{fs.rmSync(directory,{recursive:true,force:true});}
 });

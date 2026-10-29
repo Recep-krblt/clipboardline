@@ -88,6 +88,13 @@ def load_contract(path):
         isinstance(item.get(key), str) and item[key].strip() for key in ['id', 'macos', 'windows', 'reason'])
         for item in exceptions), 'OS-native exceptions require an explicit reason on both platforms')
     require(len({item['id'] for item in exceptions}) == len(exceptions), 'Duplicate OS-native exception')
+    # Shared user-visible behaviors outside shelf navigation record how each
+    # platform implements them; both platforms are required, never one alone.
+    behaviors = policy.get('sharedBehaviors')
+    require(isinstance(behaviors, list) and all(isinstance(item, dict) and set(item) == {'id', 'behavior', 'macos', 'windows'} and all(
+        isinstance(item[key], str) and item[key].strip() for key in item) for item in behaviors),
+        'Shared behaviors require a description for both platforms')
+    require(len({item['id'] for item in behaviors}) == len(behaviors), 'Duplicate shared behavior')
     item_sets, scenarios = contract.get('itemSets'), contract.get('scenarios')
     require(isinstance(item_sets, dict) and bool(item_sets) and isinstance(scenarios, list) and bool(scenarios),
             'Shared fixtures and scenarios are required')
