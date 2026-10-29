@@ -722,3 +722,14 @@ test('a capture crop owns Enter before the next render tick can copy and hide th
  assert.equal(f.commands.filter(value=>value.action==='copy').length,1,'Enter in the finished preview copies normally');
  assert.equal(f.state.windowVisible,false);
 });
+
+test('main-process notices use the selected language catalog',async()=>{
+ const f=fixture();await f.ready();
+ f.api.emit({settings:{...f.state.settings,language:'tr'}});await f.ready();
+ f.api.emit({message:'Exported 2 · failed 1'});await f.ready();
+ assert.equal(f.nodes.get('toast').textContent,'2 dışa aktarıldı · 1 başarısız');
+ f.api.emit({message:'Copied'});await f.ready();
+ assert.equal(f.nodes.get('toast').textContent,'Kopyalandı');
+ f.api.emit({message:'Synthetic untranslated notice'});await f.ready();
+ assert.equal(f.nodes.get('toast').textContent,'Synthetic untranslated notice');
+});
