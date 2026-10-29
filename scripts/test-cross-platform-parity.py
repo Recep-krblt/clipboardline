@@ -137,6 +137,16 @@ class CrossPlatformParityTests(unittest.TestCase):
         self.contract_path.write_text(json.dumps(self.contract))
         self.rejected()
 
+    def test_shared_behavior_requires_both_platforms(self):
+        original = copy.deepcopy(self.contract)
+        self.assertIn('localized-notices', {item['id'] for item in original['policy']['sharedBehaviors']})
+        for mutate in [lambda behaviors: behaviors[0].pop('windows'), lambda behaviors: behaviors[0].update(macos=' '),
+                       lambda behaviors: behaviors.append(copy.deepcopy(behaviors[0])), lambda behaviors: behaviors[0].update(extra='x')]:
+            self.contract = copy.deepcopy(original); mutate(self.contract['policy']['sharedBehaviors'])
+            self.contract_path.write_text(json.dumps(self.contract)); self.rejected()
+        self.contract = copy.deepcopy(original); del self.contract['policy']['sharedBehaviors']
+        self.contract_path.write_text(json.dumps(self.contract)); self.rejected()
+
     def test_duplicate_scenario_or_item_alias_is_rejected(self):
         original = copy.deepcopy(self.contract)
         self.contract['scenarios'].append(copy.deepcopy(self.contract['scenarios'][0]))

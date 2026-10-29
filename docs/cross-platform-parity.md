@@ -38,6 +38,13 @@ or amend the relevant scenarios and both adapters in the same change. Extend the
 contract's scope as the product grows; passing the current shelf scenarios is not
 a claim that every feature has cross-platform coverage.
 
+`policy.sharedBehaviors` records shared user-visible behavior outside shelf
+navigation, with how macOS and Windows each implement it; the checker rejects an
+entry missing either platform. `localized-notices` requires notices and the
+shortcut-conflict message to follow the selected language, including refilled
+templates such as `Exported %d · failed %d`. Its Windows evidence is the
+renderer test that runs the shipped export through the Export shortcut.
+
 The adapters execute application behavior:
 
 - macOS: `CrossPlatformBehaviorContractTests` creates the actual `LibraryStore`,
