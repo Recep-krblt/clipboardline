@@ -100,6 +100,16 @@ function plainURL(value) {
   try { const u = new URL(value); return ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password ? u.href : null; } catch { return null; }
 }
 
+// A cold PowerShell start can exceed 15 seconds on a busy machine, for example
+// while antivirus scans it. The script is idempotent, so retry only a timed-out
+// attempt once with a longer limit before refusing to open the library.
+const PROTECTION_TIMEOUTS=[15000,45000];
+function protectDirectory(directory,{powershell,script,run=execFileSync}){
+  for(const [attempt,timeout] of PROTECTION_TIMEOUTS.entries()){
+    try{return run(powershell,['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',script,'-Directory',directory],{windowsHide:true,timeout,stdio:['ignore','pipe','pipe'],env:windowsEnvironment()});}
+    catch(error){if(error?.code!=='ETIMEDOUT'||attempt===PROTECTION_TIMEOUTS.length-1)throw error;}
+  }
+}
 class Store {
   constructor(directory, {clock = Date.now} = {}) {
     this.directory = path.resolve(directory); this.clock = clock; this.undoStack = []; this.trashUndoStack = []; this.textIdentities = new WeakMap();this.revision=0;
@@ -108,7 +118,7 @@ class Store {
     if(process.platform==='win32'){
       const script=__dirname.includes('app.asar')?path.join(process.resourcesPath,'native','protect-directory.ps1'):path.join(__dirname,'..','native','protect-directory.ps1');
       const powershell=path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');
-      try{execFileSync(powershell,['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',script,'-Directory',this.directory],{windowsHide:true,timeout:15000,stdio:['ignore','pipe','pipe'],env:windowsEnvironment()});}
+      try{protectDirectory(this.directory,{powershell,script});}
       catch(error){const detail=String(error.stderr||error.message||'').replaceAll(this.directory,'[application data]').replace(/[\r\n]+/g,' ').slice(0,900);fail('The private application data permissions could not be secured. Existing files were preserved. '+detail);}
     }
     this.mediaDirectory = path.join(this.directory, 'media'); fs.mkdirSync(this.mediaDirectory, {recursive: true, mode: 0o700});
@@ -438,4 +448,4 @@ class Store {
     };
   }
 }
-module.exports = {Store, KINDS, DEFAULTS, settings, saved, plainURL, text, ids};
+module.exports = {Store, KINDS, DEFAULTS, settings, saved, plainURL, text, ids, protectDirectory};

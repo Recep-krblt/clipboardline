@@ -1,6 +1,6 @@
 'use strict';
 const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const os=require('node:os');const path=require('node:path');
-const {Store,plainURL}=require('../lib/model.cjs');
+const {Store,plainURL,protectDirectory}=require('../lib/model.cjs');
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==','base64');
 function fixture(fn){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'clipboardline-model-'));let now=1000;try{const store=new Store(dir,{clock:()=>now});return fn(store,value=>{now=value;},dir);}finally{fs.rmSync(dir,{recursive:true,force:true});}}
 test('exact recopy moves a text to front and preserves saved organization',()=>fixture((s,time)=>{const first=s.insert('text','API key exact value');s.modify('name',{id:first.id,name:'Service key'});const folder=s.modify('createFolder',{name:'Work'});s.modify('folder',{ids:[first.id],folderId:folder.id});s.modify('tag',{ids:[first.id],tags:['api']});time(2000);s.insert('text','something else');time(3000);const latest=s.insert('text','API key exact value');assert.equal(s.data.items.length,2);assert.equal(latest.id,first.id);assert.equal(latest.name,'Service key');assert.deepEqual(latest.folderIds,[folder.id]);assert.deepEqual(latest.tags,['api']);assert.equal(latest.createdAt,3000);assert.equal(s.data.items[0].id,first.id);}));
@@ -77,6 +77,12 @@ test('backup cleanup failure is explicit and recoverable after the deletion comm
   assert.equal(JSON.parse(fs.readFileSync(s.file,'utf8')).pendingBackupRefresh,true);
   s.modify('cleanup');assert.equal(s.publicState().needsDeletionCleanup,false);assert.equal(s.privacyWarning,'');assert.equal(fs.existsSync(file),false);assert.equal(JSON.parse(fs.readFileSync(s.file+'.backup','utf8')).items.length,0);
 }));
+test('application data protection retries only a timed-out PowerShell start once',()=>{
+ const timeout=()=>Object.assign(new Error('spawnSync powershell.exe ETIMEDOUT'),{code:'ETIMEDOUT'}),options={powershell:'powershell.exe',script:'protect-directory.ps1'};
+ let calls=[];assert.equal(protectDirectory('C:\\data',{...options,run:(_file,args,settings)=>{calls.push(settings.timeout);if(calls.length===1)throw timeout();assert.deepEqual(args.slice(-2),['-Directory','C:\\data']);return 'ok';}}),'ok');assert.deepEqual(calls,[15000,45000]);
+ calls=[];assert.throws(()=>protectDirectory('C:\\data',{...options,run:(_file,_args,settings)=>{calls.push(settings.timeout);throw Object.assign(new Error('Access denied'),{status:1});}}),/Access denied/);assert.deepEqual(calls,[15000]);
+ calls=[];assert.throws(()=>protectDirectory('C:\\data',{...options,run:(_file,_args,settings)=>{calls.push(settings.timeout);throw timeout();}}),/ETIMEDOUT/);assert.deepEqual(calls,[15000,45000]);
+});
 test('image unlink failure remains pending and retries safely on next startup',()=>fixture((s,_time,dir)=>{
   const item=s.insert('image',png),file=s.mediaPath(item.id);s.modify('trash',{ids:[item.id]});const unlink=fs.unlinkSync;
   try{fs.unlinkSync=destination=>{if(destination===file)throw Object.assign(new Error('synthetic file in use'),{code:'EACCES'});return unlink(destination);};assert.throws(()=>s.modify('delete',{ids:[item.id]}),error=>error.committed&&/incomplete/.test(error.message));}finally{fs.unlinkSync=unlink;}
