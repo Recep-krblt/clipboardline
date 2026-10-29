@@ -1,8 +1,33 @@
 'use strict';
 class OcrQueue {
- constructor(){this.items=[];this.pending=new Set();}
- enqueue(id){if(this.pending.has(id))return false;this.items.push(id);this.pending.add(id);return true;}
- dequeue(){const id=this.items.shift();if(id!==undefined)this.pending.delete(id);return id;}
- get size(){return this.items.length;}
+ constructor({enabled=()=>true,closing=()=>false,process=async()=>{},schedule=work=>setImmediate(work)}={}){
+  this.items=[];this.head=0;this.pending=new Set();this.enabled=enabled;this.closing=closing;this.process=process;this.schedule=schedule;this.indexing=false;
+ }
+ enqueue(id){
+  if(this.closing()||!this.enabled()||this.pending.has(id))return false;
+  this.items.push(id);this.pending.add(id);this.drainSoon();return true;
+ }
+ dequeue(){
+  if(this.head>=this.items.length)return undefined;
+  const id=this.items[this.head++];this.pending.delete(id);
+  if(this.head>=64&&this.head*2>=this.items.length){this.items=this.items.slice(this.head);this.head=0;}
+  return id;
+ }
+ get size(){return this.items.length-this.head;}
+ drainSoon(){
+  if(this.indexing||!this.size||this.closing())return;
+  this.indexing=true;this.schedule(()=>this.drain());
+ }
+ async drain(){
+  try{
+   while(this.size&&!this.closing()){
+    const id=this.dequeue();
+    try{await this.process(id);}catch{}
+   }
+  }finally{
+   this.indexing=false;
+   if(this.size&&!this.closing())this.drainSoon();
+  }
+ }
 }
 module.exports={OcrQueue};
