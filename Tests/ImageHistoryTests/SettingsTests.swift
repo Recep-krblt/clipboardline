@@ -48,7 +48,9 @@ import XCTest
         model.historyCleanupKind = .text
         controller.close()
         controller.present()
-        controller.window?.contentView?.layoutSubtreeIfNeeded()
+        let content = try XCTUnwrap(controller.window?.contentView)
+        XCTAssertTrue(String(describing: type(of: content)).hasPrefix("NSHostingView"), "Reopening must rebuild the view")
+        content.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         // The rebuilt view must not replay the old request, and the chosen
         // copies to clear are kept.
