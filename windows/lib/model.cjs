@@ -78,12 +78,18 @@ function settings(patch, previous = DEFAULTS) {
   }
   return out;
 }
+// Match macOS libraryFolded: sibling folder names ignore case, width and diacritics.
+const foldedName=value=>value.normalize('NFKD').replace(/\p{M}/gu,'').toLowerCase();
 function trashUndoFingerprint(item){return crypto.createHash('sha256').update(JSON.stringify(item)).digest('hex');}
 function trashUndoMatches(item,entry){return !!item&&item.trashedAt!=null&&item.trashedAt===entry.afterTrashedAt&&item.updatedAt===entry.afterUpdatedAt&&(item.captureRevision??null)===entry.captureRevision&&trashUndoFingerprint(item)===entry.fingerprint;}
 function availableTrashUndo(items,journal){if(!journal?.length)return false;const byID=new Map(items.map(item=>[item.id,item]));for(let index=journal.length-1;index>=0;index--)if(journal[index].some(entry=>trashUndoMatches(byID.get(entry.id),entry)))return true;return false;}
 function saved(item) { return item.retainedAt != null || item.pinned || item.folderIds.length > 0 || item.tags.length > 0; }
+// Match macOS LinkIdentity.standalone: a copied URL keeps its link identity
+// when the source adds a trailing newline or surrounding spaces.
 function plainURL(value) {
-  if (typeof value !== 'string' || /\s/.test(value) || value.length > 8192) return null;
+  if (typeof value !== 'string') return null;
+  value = value.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, '');
+  if (!value || /\s/.test(value) || value.length > 8192) return null;
   try { const u = new URL(value); return ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password ? u.href : null; } catch { return null; }
 }
 
@@ -328,11 +334,12 @@ class Store {
       const name = text(payload.name, 120).trim(); if (!name) fail('Folder name is empty');
       const parentId = payload.parentId || null;
       if(parentId){const parent=this.data.folders.find(f=>f.id===parentId);if(!parent)fail('Parent folder is unavailable');if(parent.parentId!=null)fail('Only top-level folders can contain subfolders');}
+      if(this.data.folders.some(f=>(f.parentId??null)===parentId&&foldedName(f.name)===foldedName(name)))fail('A folder with this name already exists');
       const folder = {id: crypto.randomUUID(), name, parentId}; this.data.folders.push(folder); this.persist(); return folder;
     }
     if(action==='renameFolder'||action==='removeFolder') {
       const folder=this.data.folders.find(f=>f.id===payload.id);if(!folder)fail('Folder unavailable');const originalMemberships=new Map(this.data.items.map(item=>[item.id,JSON.stringify(item.folderIds)]));
-      if(action==='renameFolder'){folder.name=text(payload.name,120).trim();if(!folder.name)fail('Folder name is empty');}
+      if(action==='renameFolder'){folder.name=text(payload.name,120).trim();if(!folder.name)fail('Folder name is empty');if(this.data.folders.some(f=>f!==folder&&(f.parentId??null)===(folder.parentId??null)&&foldedName(f.name)===foldedName(folder.name)))fail('A folder with this name already exists');}
       else {const removed=new Set([folder.id]);let changed=true;while(changed){changed=false;for(const child of this.data.folders)if(removed.has(child.parentId)&&!removed.has(child.id)){removed.add(child.id);changed=true;}}this.data.folders=this.data.folders.filter(f=>!removed.has(f.id));for(const item of this.data.items)if(item.folderIds.some(id=>removed.has(id))){item.retainedAt??=now;item.folderIds=item.folderIds.filter(id=>!removed.has(id));}}
       this.pruneRecentFolders();this.persist();this.invalidateTrashUndo(this.data.items.filter(item=>originalMemberships.get(item.id)!==JSON.stringify(item.folderIds)).map(item=>item.id));return;
     }
