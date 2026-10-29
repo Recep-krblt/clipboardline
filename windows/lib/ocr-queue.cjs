@@ -20,8 +20,9 @@ class OcrQueue {
  }
  async drain(){
   try{
-   while(this.size&&this.enabled()&&!this.closing()){
+   while(this.size&&!this.closing()){
     const id=this.dequeue();
+    if(!this.enabled())continue;
     try{await this.process(id);}catch{}
    }
   }finally{

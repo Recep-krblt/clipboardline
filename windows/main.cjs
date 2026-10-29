@@ -1,4 +1,4 @@
-Warning: truncated output (original token count: 11275)
+Warning: truncated output (original token count: 11255)
 Total output lines: 486
 
 'use strict';
@@ -254,7 +254,8 @@ async function importFile(file) {
   if(['.mov','.mp4'].includes(extension)){
     if(stat.size>MAXIMUM_VIDEO_BYTES)throw new Error('Recording exceeds the 2 GB import limit.');
     const inspected=await mediaJobs.probe(file);
-  …1275 tokens truncated…ing?.token===token)return;
+  …1255 tokens truncated…est(token))throw new Error('Invalid shortcut recorder.');
+  if(shortcutRecording?.token===token)return;
   if(!window?.isVisible()||!window.isFocused())throw new Error('Focus the shortcut recorder before recording.');
   if(!shortcutRegistry)configureShortcuts();
   const resume=shortcutRegistry.suspend(),previous=shortcutRecording;shortcutRecording={token,resume};previous?.resume();
@@ -348,7 +349,7 @@ async function command(action,payload={}) {
     const patch={...payload.patch};
     if(Object.hasOwn(patch,'watchFolders'))throw new Error('Choose watched folders with the folder picker.');
     const previousShortcuts={...store.data.settings.shortcuts};
-    store.modify('setSettings',{patch});if(Object.hasOwn(patch,'indexImages')&&patch.indexImages)ocrQueue.drainSoon();if(Object.hasOwn(patch,'retentionDays'))refreshImageSearch();if(Object.hasOwn(patch,'shortcuts')&&configureShortcuts(previousShortcuts).length)result={error:message};
+    store.modify('setSettings',{patch});if(Object.hasOwn(patch,'retentionDays'))refreshImageSearch();if(Object.hasOwn(patch,'shortcuts')&&configureShortcuts(previousShortcuts).length)result={error:message};
     if(['captureText','captureImages','captureLinks'].some(key=>Object.hasOwn(patch,key)))lastFingerprint='';
     if(Object.hasOwn(patch,'launchAtLogin')&&!testMode)app.setLoginItemSettings({openAtLogin:patch.launchAtLogin});
     if(Object.hasOwn(patch,'autoCheckUpdates')&&patch.autoCheckUpdates&&!development)void updateScheduler.tick({force:true});

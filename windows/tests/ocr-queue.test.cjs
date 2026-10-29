@@ -31,18 +31,27 @@ test('background OCR gates disabled work and permits a retry after dequeue',asyn
  assert.equal(queue.dequeue(),undefined);
 });
 
-test('background OCR pauses queued work while indexing is disabled and resumes when enabled',async()=>{
+test('background OCR discards queued work when indexing is disabled before drain',async()=>{
  const scheduled=[],processed=[];let enabled=true;
  const queue=new OcrQueue({enabled:()=>enabled,closing:()=>false,schedule:work=>scheduled.push(work),process:async id=>processed.push(id)});
  for(const id of ['image-a','image-b','image-c'])assert.equal(queue.enqueue(id),true);
  enabled=false;
  await scheduled.shift()();
  assert.deepEqual(processed,[]);
- assert.equal(queue.size,3);
+ assert.equal(queue.size,0);
  assert.equal(scheduled.length,0);
  enabled=true;queue.drainSoon();
+ assert.equal(scheduled.length,0);
+});
+
+test('background OCR stops after the active image when indexing is disabled',async()=>{
+ const scheduled=[],processed=[];let enabled=true;
+ const queue=new OcrQueue({enabled:()=>enabled,closing:()=>false,schedule:work=>scheduled.push(work),process:async id=>{processed.push(id);if(id==='image-a')enabled=false;}});
+ for(const id of ['image-a','image-b','image-c'])assert.equal(queue.enqueue(id),true);
  await scheduled.shift()();
- assert.deepEqual(processed,['image-a','image-b','image-c']);
+ assert.deepEqual(processed,['image-a']);
  assert.equal(queue.size,0);
+ enabled=true;queue.drainSoon();
+ assert.equal(scheduled.length,0);
 });
 
