@@ -37,6 +37,26 @@ import XCTest
         XCTAssertFalse(isHosting(), "A closed Settings window must not keep re-rendering")
     }
 
+    func testReopenedSettingsKeepCleanupChoiceAndHandleUpdateRequestOnce() throws {
+        _ = NSApplication.shared
+        let f = try SyntheticFixture(); defer { f.cleanup() }
+        let model = SettingsModel(line: f.line(), allowsSystemChanges: false)
+        let controller = SettingsWindowController(model: model)
+        model.updatesRequest += 1
+        XCTAssertEqual(model.section, .updates)
+        model.section = .history
+        model.historyCleanupKind = .text
+        controller.close()
+        controller.present()
+        controller.window?.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        // The rebuilt view must not replay the old request, and the chosen
+        // copies to clear are kept.
+        XCTAssertEqual(model.section, .history)
+        XCTAssertEqual(model.historyCleanupKind, .text)
+        controller.close()
+    }
+
     func testSettingsBindingsApplyAppearanceWithoutMovingFocusOrDroppingHistory() throws {
         let f = try SyntheticFixture(); defer { f.cleanup(); Layout.size = .medium }
         let line = f.line()
