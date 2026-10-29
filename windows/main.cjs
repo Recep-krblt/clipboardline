@@ -52,7 +52,16 @@ const pasteTargets=new PasteTargetTracker(process.pid);
 const entry = pathToFileURL(path.join(__dirname,'index.html')).href;
 const copyMarker = crypto.randomBytes(16);
 const pending = new Map();
-const ocrJobs=new Map(),ocrQueue=new OcrQueue();let indexing=false;
+const ocrJobs=new Map();
+const ocrQueue=new OcrQueue({
+ enabled:()=>!testMode&&!!store?.data.settings.indexImages,
+ closing:()=>closing,
+ process:async next=>{
+  const item=store.data.items.find(i=>i.id===next);if(!item||item.trashedAt||item.ocrText)return;
+  const fingerprint=item.renderedFile||item.imageFile;try{await ocr(next,true);}catch{}
+  if(store.data.items.includes(item)&&(item.renderedFile||item.imageFile)!==fingerprint)ocrQueue.enqueue(next);
+ }
+});
 const mediaDiagnostics=[];
 let imageSearch,imageSearchTimer,dragFiles,mediaJobs;
 const recordingTrims=new Map();
@@ -262,7 +271,7 @@ async function capture() {
     const item=store.insert('image',source.thumbnail.toPNG());queueOCR(item.id);refreshImageSearch();await show('shelves',{selectId:item.id,kind:'image',preview:true,crop:true});return{id:item.id};
   }catch(error){if(wasVisible)await show(view);throw error;}
 }
-function queueOCR(id){if(testMode||!store.data.settings.indexImages||!ocrQueue.enqueue(id))return;if(indexing)return;indexing=true;setImmediate(async()=>{try{while(ocrQueue.size&&!closing){const next=ocrQueue.dequeue(),item=store.data.items.find(i=>i.id===next);if(!item||item.trashedAt||item.ocrText)continue;const fingerprint=item.renderedFile||item.imageFile;try{await ocr(next,true);}catch{}if(store.data.items.includes(item)&&(item.renderedFile||item.imageFile)!==fingerprint)ocrQueue.enqueue(next);}}finally{indexing=false;}});}
+function queueOCR(id){ocrQueue.enqueue(id);}
 async function ocr(id,quiet=false){if(ocrJobs.has(id))return ocrJobs.get(id);const promise=recognize(id,quiet);ocrJobs.set(id,promise);try{return await promise;}finally{ocrJobs.delete(id);}}
 async function recognize(id,quiet=false) {
   const item=store.item(id);if(item.kind!=='image'||item.recording)throw new Error('OCR requires a still image');
