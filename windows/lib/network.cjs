@@ -63,6 +63,12 @@ const entities = value => value.replace(/&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|
   const code = decimal ? Number(decimal) : parseInt(hex, 16);
   return code > 0x1f && code <= 0x10ffff && !(code >= 0x7f && code <= 0x9f) && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : match;
 });
+// Turkish pages are often still windows-1254 / ISO-8859-9; honor the header, a BOM, then an early <meta charset>.
+function decodeHTML(bytes, type = '') {
+  const label = /charset\s*=\s*["']?([\w.:-]+)/i.exec(type)?.[1] || (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? 'utf-8' : /<meta[^>]+charset\s*=\s*["']?([\w.:-]+)/i.exec(bytes.subarray(0, 2048).toString('latin1'))?.[1]);
+  try { return new TextDecoder(label || 'utf-8', {fatal: !label}).decode(bytes); } catch {}
+  try { return new TextDecoder('utf-8', {fatal: true}).decode(bytes); } catch { return new TextDecoder('windows-1252').decode(bytes); }
+}
 const collapse = value => value.replace(/\s+/g, ' ').trim();
 function meta(html, name) {
   for (const match of html.matchAll(/<meta\b([^>]{0,4096})>/gi)) {
@@ -81,7 +87,7 @@ async function linkMetadata(input, fetcher = metadataFetch) {
     return {title: String(data.title || '').slice(0, 500), author: String(data.author_name || '').slice(0, 200), thumbnail: data.thumbnail_url || ''};
   }
   const response = await fetcher(url.href); if (!/text\/html|application\/xhtml/i.test(response.type)) return {title: url.hostname};
-  const html = response.bytes.toString('utf8');
+  const html = decodeHTML(response.bytes, response.type);
   // Collapse layout whitespace only in display text; og:image stays a URL.
   const title = collapse(meta(html, 'og:title')) || collapse(entities((html.match(/<title[^>]*>([\s\S]{0,2000}?)<\/title>/i)?.[1] || '').replace(/<[^>]*>/g, ''))) || url.hostname;
   let thumbnail = meta(html, 'og:image');
