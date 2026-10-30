@@ -751,3 +751,10 @@ for(const row of [{code:'ArrowUp',key:'ArrowUp',saved:'Control+Alt+Up'},{code:'A
  await f.key(row.code,{key:row.key,ctrl:true,alt:true,shift:!!row.shift});await f.click('confirm-modal');
  assert.equal(f.commands.filter(value=>value.action==='setSettings').at(-1).payload.patch.shortcuts.search,row.saved);
 });
+test('Settings shortcut filter matches the displayed localized action titles as well as the English ones',async()=>{
+ const f=fixture();await f.ready();await f.api.command('settings');f.api.emit({settings:{...f.state.settings,language:'tr'}});await f.ready();await f.click('settings-tab',{tab:'shortcuts'});
+ const rows=()=>[...f.main.matchAll(/data-action="record-local" data-key-action="([^"]+)"/g)].map(match=>match[1]);
+ await f.input('shortcut-filter','kopyala');assert.ok(rows().includes('copy'));assert.ok(!rows().includes('pin'));
+ await f.input('shortcut-filter','Sabitle');assert.ok(rows().includes('pin'));assert.ok(!rows().includes('copy'));
+ await f.input('shortcut-filter','copy');assert.ok(rows().includes('copy'));
+});

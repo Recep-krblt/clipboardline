@@ -85,7 +85,7 @@ function trashUndoMatches(item,entry){return !!item&&item.trashedAt!=null&&item.
 function availableTrashUndo(items,journal){if(!journal?.length)return false;const byID=new Map(items.map(item=>[item.id,item]));for(let index=journal.length-1;index>=0;index--)if(journal[index].some(entry=>trashUndoMatches(byID.get(entry.id),entry)))return true;return false;}
 // Match macOS cleanedName: at most 64 Characters (grapheme clusters, like
 // Swift's String.count) and nothing from CharacterSet.controlCharacters (Cc and
-// Cf), whether a tag is added or renamed.
+// Cf), whether a tag or folder is added or renamed.
 const graphemes=new Intl.Segmenter('en',{granularity:'grapheme'});
 // 64 graphemes can span far more UTF-16 units; this only bounds raw input.
 const TAG_INPUT_LIMIT=4096;
@@ -348,7 +348,7 @@ class Store {
     if(action==='cleanup'){this.finishPermanentDeletion();return;}
     if (action === 'setSettings') { this.data.settings = settings(payload.patch, this.data.settings);this.pruneRecentFolders();this.expire(false); this.persist(); return; }
     if (action === 'createFolder') {
-      const name = text(payload.name, 120).trim(); if (!name) fail('Folder name is empty');
+      const name = text(payload.name, TAG_INPUT_LIMIT).trim(); if (!name) fail('Folder name is empty');if(!validTagName(name))fail('Invalid folder name');
       const parentId = payload.parentId || null;
       if(parentId){const parent=this.data.folders.find(f=>f.id===parentId);if(!parent)fail('Parent folder is unavailable');if(parent.parentId!=null)fail('Only top-level folders can contain subfolders');}
       if(this.data.folders.some(f=>(f.parentId??null)===parentId&&foldedName(f.name)===foldedName(name)))fail('A folder with this name already exists');
@@ -356,7 +356,7 @@ class Store {
     }
     if(action==='renameFolder'||action==='removeFolder') {
       const folder=this.data.folders.find(f=>f.id===payload.id);if(!folder)fail('Folder unavailable');const originalMemberships=new Map(this.data.items.map(item=>[item.id,JSON.stringify(item.folderIds)]));
-      if(action==='renameFolder'){folder.name=text(payload.name,120).trim();if(!folder.name)fail('Folder name is empty');if(this.data.folders.some(f=>f!==folder&&(f.parentId??null)===(folder.parentId??null)&&foldedName(f.name)===foldedName(folder.name)))fail('A folder with this name already exists');}
+      if(action==='renameFolder'){const name=text(payload.name,TAG_INPUT_LIMIT).trim();if(!name)fail('Folder name is empty');if(!validTagName(name))fail('Invalid folder name');folder.name=name;if(this.data.folders.some(f=>f!==folder&&(f.parentId??null)===(folder.parentId??null)&&foldedName(f.name)===foldedName(folder.name)))fail('A folder with this name already exists');}
       else {const removed=new Set([folder.id]);let changed=true;while(changed){changed=false;for(const child of this.data.folders)if(removed.has(child.parentId)&&!removed.has(child.id)){removed.add(child.id);changed=true;}}this.data.folders=this.data.folders.filter(f=>!removed.has(f.id));for(const item of this.data.items)if(item.folderIds.some(id=>removed.has(id))){item.retainedAt??=now;item.folderIds=item.folderIds.filter(id=>!removed.has(id));}}
       this.pruneRecentFolders();this.persist();this.invalidateTrashUndo(this.data.items.filter(item=>originalMemberships.get(item.id)!==JSON.stringify(item.folderIds)).map(item=>item.id));return;
     }
@@ -384,6 +384,8 @@ class Store {
       this.undoStack.push(items.map(i => ({id: i.id, trashedAt: i.trashedAt, hiddenFromShelf: i.hiddenFromShelf})));
       if (this.undoStack.length > 32) this.undoStack.shift();
     }
+    // Match macOS addTag: tags are unique ignoring case, width and diacritics, so a new spelling reuses the existing one.
+    const knownTags=new Map();if(action==='tag')for(const other of this.data.items)for(const tag of other.tags){const key=foldedName(tag);if(!knownTags.has(key))knownTags.set(key,tag);}
     const targetPin = typeof payload.value === 'boolean' ? payload.value : items.some(i => !i.pinned);
     for (const item of items) {
       if (action === 'pin') {item.pinned = targetPin;if(targetPin)item.retainedAt??=now;}
@@ -408,7 +410,7 @@ class Store {
         const tag=text(payload.tag,TAG_INPUT_LIMIT).trim();item.tags=item.tags.filter(value=>value!==tag);
       } else if (action === 'tag') {
         if (!Array.isArray(payload.tags) || payload.tags.length > 50) fail('Invalid tags');
-        const tags = [...new Set(payload.tags.map(tag => text(tag, TAG_INPUT_LIMIT).trim()).filter(Boolean))];
+        const tags = [...new Set(payload.tags.map(tag => { tag = text(tag, TAG_INPUT_LIMIT).trim(); if (item.tags.includes(tag)) return tag; tag = tag.replace(/^#+|#+$/g, '').trim(); const key = foldedName(tag), known = item.tags.find(own => foldedName(own) === key) ?? knownTags.get(key) ?? tag; if (tag) knownTags.set(key, known); return tag && known; }).filter(Boolean))];
         // Existing longer tags stay editable; only newly added names must fit.
         if (tags.some(tag => !item.tags.includes(tag) && !validTagName(tag))) fail('Invalid tag name');
         item.tags = tags;
