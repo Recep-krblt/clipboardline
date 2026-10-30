@@ -28,9 +28,13 @@ async function publicURL(input, resolver = dns.lookup) {
   if (!addresses.length || addresses.some(value => !publicAddress(value.address))) throw new Error('Private network destinations are blocked');
   return {url, address: addresses[0]};
 }
-async function boundedFetch(input, {maximum = 512 * 1024, redirects = 3, resolver, timeout = 8000, guard} = {}) {
+async function boundedFetch(input, {maximum = 512 * 1024, redirects = 3, resolver, timeout = 8000, deadline, guard} = {}) {
   if(guard)guard(new URL(input));
-  const {url, address} = await publicURL(input, resolver);
+  // `deadline` is a duration for the whole call chain: fix the end once, redirects get only what is left, DNS counts too.
+  const end = deadline ? Date.now() + deadline : 0, remaining = () => end - Date.now(), expired = () => new Error('Network request timed out');
+  let wait; const resolving = publicURL(input, resolver);
+  const {url, address} = deadline ? await Promise.race([resolving, new Promise((_, fail) => { wait = setTimeout(() => fail(expired()), deadline); })]).finally(() => clearTimeout(wait)) : await resolving;
+  if (deadline && remaining() <= 0) throw expired();
   return new Promise((resolve, reject) => {
     const request = (url.protocol === 'https:' ? https : http).get(url, {
       headers: {'User-Agent': 'ClipBoardLine/1.7.0', Accept: '*/*'},
@@ -40,7 +44,8 @@ async function boundedFetch(input, {maximum = 512 * 1024, redirects = 3, resolve
       if ([301,302,303,307,308].includes(response.statusCode)) {
         response.resume(); if (!redirects || !response.headers.location) { reject(new Error('Too many redirects')); return; }
         let next; try { next = new URL(response.headers.location, url).href; } catch { reject(new Error('Invalid redirect location')); return; }
-        boundedFetch(next, {maximum, redirects: redirects - 1, resolver, timeout,guard}).then(resolve, reject); return;
+        const left = deadline && remaining(); if (deadline && left <= 0) { reject(expired()); return; }
+        boundedFetch(next, {maximum, redirects: redirects - 1, resolver, timeout, deadline: left, guard}).then(resolve, reject); return;
       }
       if (response.statusCode !== 200 || Number(response.headers['content-length'] || 0) > maximum) { response.destroy(); reject(new Error('Remote response is unavailable or too large')); return; }
       const blocks = []; let length = 0;
@@ -48,6 +53,8 @@ async function boundedFetch(input, {maximum = 512 * 1024, redirects = 3, resolve
       response.on('error', reject); response.on('end', () => resolve({bytes: Buffer.concat(blocks), url: url.href, type: String(response.headers['content-type'] || '')}));
     });
     request.on('timeout', () => request.destroy(new Error('Network request timed out'))); request.on('error', reject);
+    // `timeout` is an idle-socket limit; a server dripping one byte per interval never trips it.
+    if (deadline) { const timer = setTimeout(() => request.destroy(expired()), remaining()); request.once('close', () => clearTimeout(timer)); }
   });
 }
 function metadataGuard(url){
@@ -55,7 +62,7 @@ function metadataGuard(url){
   const sensitive=new Set(['token','accesstoken','refreshtoken','idtoken','apikey','auth','authorization','authentication','authtoken','code','signature','sig','session','sessionid','state','password','secret','clientsecret','credential','credentials','accesskeyid','key','keypairid','policy','verifier','jwt','bearer']);
   for(const key of url.searchParams.keys()){const normalized=key.toLowerCase().replace(/[^a-z0-9]/g,'');if(/^(xamz|xgoog|oauth)/.test(normalized)||sensitive.has(normalized))throw new Error('Sensitive link parameters are not fetched automatically.');}
 }
-function metadataFetch(input,options={}){return boundedFetch(input,{...options,guard:metadataGuard});}
+function metadataFetch(input,options={}){return boundedFetch(input,{deadline:20000,...options,guard:metadataGuard});}
 const NAMED_ENTITIES = {amp:'&',quot:'"',lt:'<',gt:'>',apos:"'",nbsp:' '};
 // Titles such as "It&#8217;s" or "A&#x2F;B" must not show raw references.
 // Invalid or control code points stay literal rather than injecting text.
