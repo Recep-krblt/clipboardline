@@ -384,6 +384,8 @@ class Store {
       this.undoStack.push(items.map(i => ({id: i.id, trashedAt: i.trashedAt, hiddenFromShelf: i.hiddenFromShelf})));
       if (this.undoStack.length > 32) this.undoStack.shift();
     }
+    // Match macOS addTag: tags are unique ignoring case, width and diacritics, so a new spelling reuses the existing one.
+    const knownTags=new Map();if(action==='tag')for(const other of this.data.items)for(const tag of other.tags){const key=foldedName(tag);if(!knownTags.has(key))knownTags.set(key,tag);}
     const targetPin = typeof payload.value === 'boolean' ? payload.value : items.some(i => !i.pinned);
     for (const item of items) {
       if (action === 'pin') {item.pinned = targetPin;if(targetPin)item.retainedAt??=now;}
@@ -408,7 +410,7 @@ class Store {
         const tag=text(payload.tag,TAG_INPUT_LIMIT).trim();item.tags=item.tags.filter(value=>value!==tag);
       } else if (action === 'tag') {
         if (!Array.isArray(payload.tags) || payload.tags.length > 50) fail('Invalid tags');
-        const tags = [...new Set(payload.tags.map(tag => text(tag, TAG_INPUT_LIMIT).trim()).filter(Boolean))];
+        const tags = [...new Set(payload.tags.map(tag => { tag = text(tag, TAG_INPUT_LIMIT).trim(); if (item.tags.includes(tag)) return tag; tag = tag.replace(/^#+|#+$/g, '').trim(); const key = foldedName(tag), known = item.tags.find(own => foldedName(own) === key) ?? knownTags.get(key) ?? tag; if (tag) knownTags.set(key, known); return tag && known; }).filter(Boolean))];
         // Existing longer tags stay editable; only newly added names must fit.
         if (tags.some(tag => !item.tags.includes(tag) && !validTagName(tag))) fail('Invalid tag name');
         item.tags = tags;
