@@ -143,7 +143,7 @@ function queueLibraryImageSearch(){const key=libraryImageSearchKey();if(key===li
 function librarySearchStatus(){if(!ui.search||ui.searchMode==='text')return'';if(libraryImageSearch.indexing||state.imageSearch?.indexing)return t('Indexing images locally…');if(!libraryImageSearch.available)return t('Visual search unavailable; text and OCR search remain available.');return'';}
 function relevance(value){const query=fold(ui.search).trim();if(!query)return 0;const name=fold(title(value)),body=fold([value.text,value.url,value.note,value.ocrText,...(value.tags||[])].join(' '));return (name===query?24:0)+(name.includes(query)?10:0)+query.split(/\s+/).reduce((score,token)=>score+(name.includes(token)?4:0)+(body.includes(token)?1:0),0);}
 function currentItems() { return ui.view==='library'?libraryItems():rowItems(ui.active); }
-function selectedIds() { if(ui.preview){const value=item(ui.preview);return value&&!value.trashedAt&&!(ui.view==='shelves'&&value.hiddenFromShelf)?[ui.preview]:[];} const values=currentItems(); const selected=values.filter(value=>ui.selected.has(value.id)).map(value=>value.id); return selected.length?selected:(ui.focus?[ui.focus]:[]); }
+function selectedIds() { if(ui.preview){const value=item(ui.preview);return value&&!value.trashedAt&&!(ui.view==='shelves'&&value.hiddenFromShelf)?[ui.preview]:[];} const values=currentItems(); const selected=values.filter(value=>ui.selected.has(value.id)).map(value=>value.id); return selected.length?selected:(ui.focus&&values.some(value=>value.id===ui.focus)?[ui.focus]:[]); }
 function reconcileLibraryFocus(){const values=libraryItems(),previous=ui.preview||ui.focus,next=values.find(value=>value.id===previous)||values[0];ui.selected=new Set(values.filter(value=>ui.selected.has(value.id)).map(value=>value.id));ui.focus=next?.id||null;if(!ui.selected.size&&next)ui.selected.add(next.id);if(!values.some(value=>value.id===ui.anchor))ui.anchor=ui.focus;if(ui.preview)ui.preview=next?.id||null;}
 // Keep one real keyboard tab stop in the results. Model selection alone does
 // not move Chromium focus out of a toolbar/search control or a closed dialog.
@@ -662,7 +662,7 @@ case 'settings':if(!await flushPreview())break;releaseShortcutRecording(ui.modal
 case 'hide':if(!await flushPreview())break;releaseShortcutRecording(ui.modal);ui.editor=null;ui.editingText=false;ui.preview=null;ui.modal=null;await command('hide');break;
 case 'copy':await copySelection(true,false,ids);break;
 case 'paste':await copySelection(false,true,ids);break;
-case 'preview':if(ui.preview)await closePreview();else await openPreview(value?.id);break;
+case 'preview':if(ui.preview)await closePreview();else if(value)await openPreview(value.id);break;
 case 'close':if(ui.preview)await closePreview();else if(ui.searchOpen){ui.search='';ui.searchOpen=false;focusFirst();render();}else await perform('hide');break;
 case 'close-preview':await closePreview();break;
 case 'previous':await move(-1);break;case 'next':await move(1);break;
