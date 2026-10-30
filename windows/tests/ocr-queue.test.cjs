@@ -1,14 +1,14 @@
 'use strict';
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {OcrQueue}=require('../lib/ocr-queue.cjs');
+const {OcrQueue,createOcrQueue}=require('../lib/ocr-queue.cjs');
 
 test('background OCR drains more than 64 accepted images to the worker in FIFO order',async()=>{
  const processed=[],scheduled=[];
- const queue=new OcrQueue({enabled:()=>true,closing:()=>false,schedule:work=>scheduled.push(work),process:async id=>processed.push(id)});
+ const {queue,queueOCR}=createOcrQueue({enabled:()=>true,closing:()=>false,schedule:work=>scheduled.push(work),process:async id=>processed.push(id)});
  const ids=Array.from({length:70},(_,index)=>`image-${index}`);
- for(const id of ids)assert.equal(queue.enqueue(id),true,id);
- assert.equal(queue.enqueue(ids[0]),false);
+ for(const id of ids)assert.equal(queueOCR(id),true,id);
+ assert.equal(queueOCR(ids[0]),false);
  assert.equal(queue.size,70);
  assert.equal(scheduled.length,1);
  await scheduled.shift()();
