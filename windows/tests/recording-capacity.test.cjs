@@ -87,3 +87,36 @@ test('capacity cleanup skips deletion when the recovery backup cannot be read',a
   assert.ok(fs.readdirSync(store.mediaDirectory).some(name=>name.endsWith('.png')));
  }finally{fs.rmSync(data,{recursive:true,force:true});}
 });
+test('real video import registers its file before a concurrent capacity cleanup',async()=>{
+ const data=directory('.recording-real-link-capacity-');let realLink,releaseLink,trim;
+ try{
+  const store=new Store(data),originalFile=source(data,'real-link-original.mp4','synthetic original video bytes'),trimmedFile=source(data,'real-link-trimmed.mp4','synthetic trim bytes long enough for putVideo');
+  const putVideo=store.putVideo.bind(store);installSyntheticVideoWriter(store);
+  const original=await store.insertRecording(recording(originalFile));store.putVideo=putVideo;store.data.items.push(...fillers(19999));
+  const trimmedName=crypto.createHash('sha256').update(fs.readFileSync(trimmedFile)).digest('hex')+'.mp4';
+  let announceLink;const linkStarted=new Promise(resolve=>{announceLink=resolve;});
+  const linkGate=new Promise(resolve=>{releaseLink=resolve;});
+  realLink=fs.promises.link.bind(fs.promises);let pauseFirstLink=true;
+  fs.promises.link=async(sourcePath,destination)=>{
+   if(pauseFirstLink){pauseFirstLink=false;announceLink(destination);await linkGate;}
+   try{return await realLink(sourcePath,destination);}catch(error){if(error.code!=='EPERM')throw error;return fs.promises.copyFile(sourcePath,destination,fs.constants.COPYFILE_EXCL);}
+  };
+  trim=store.commitRecordingTrim({...recording(trimmedFile,2000),id:original.id,sourceFingerprint:original.videoFile.slice(0,64)});
+  const destination=await linkStarted;
+  assert.equal(path.basename(destination),trimmedName);
+  assert.equal(store.inFlightMediaReferences.get(trimmedName),1);
+  assert.equal(fs.existsSync(destination),false);
+  try{
+   await assert.rejects(store.insertRecording(recording(trimmedFile)),/Library item limit reached/);
+   assert.ok(fs.existsSync(destination));
+  }finally{releaseLink();}
+  await trim;
+  assert.equal(store.item(original.id).renderedVideoFile,trimmedName);
+  assert.ok(fs.existsSync(destination));
+ }finally{
+  releaseLink?.();
+  if(realLink)fs.promises.link=realLink;
+  if(trim)await trim.catch(()=>{});
+  fs.rmSync(data,{recursive:true,force:true});
+ }
+});
