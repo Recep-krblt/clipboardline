@@ -752,6 +752,11 @@ test('Tab onto an empty shelf leaves copy, take down, pin and preview with nothi
  for(const [code,extra]of [['Enter',{}],['KeyS',{}],['KeyP',{}],['Space',{}],['KeyC',{ctrl:true}]])await f.key(code,extra);
  assert.deepEqual(f.commands.slice(commands).filter(command=>command.payload.ids?.length),[]);assert.equal(f.overlay,'');assert.equal(f.state.items.find(value=>value.id===f.image).trashedAt,null);assert.equal(f.state.windowVisible,true);
 });
+for(const row of [{code:'ArrowUp',key:'ArrowUp',saved:'Control+Alt+Up'},{code:'ArrowLeft',key:'ArrowLeft',shift:true,saved:'Control+Alt+Shift+Left'},{code:'Equal',key:'+',shift:true,saved:'Control+Alt+Shift+Plus'}])test('global recorder saves Electron accelerator names for DOM-only keys: '+JSON.stringify(row),async()=>{
+ const f=fixture();await f.ready();await f.api.command('settings');await f.ready();await f.click('record-global',{keyAction:'search'});
+ await f.key(row.code,{key:row.key,ctrl:true,alt:true,shift:!!row.shift});await f.click('confirm-modal');
+ assert.equal(f.commands.filter(value=>value.action==='setSettings').at(-1).payload.patch.shortcuts.search,row.saved);
+});
 test('Settings shortcut filter matches the displayed localized action titles as well as the English ones',async()=>{
  const f=fixture();await f.ready();await f.api.command('settings');f.api.emit({settings:{...f.state.settings,language:'tr'}});await f.ready();await f.click('settings-tab',{tab:'shortcuts'});
  const rows=()=>[...f.main.matchAll(/data-action="record-local" data-key-action="([^"]+)"/g)].map(match=>match[1]);
