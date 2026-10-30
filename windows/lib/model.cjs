@@ -112,7 +112,7 @@ function protectDirectory(directory,{powershell,script,run=execFileSync}){
 }
 class Store {
   constructor(directory, {clock = Date.now} = {}) {
-    this.directory = path.resolve(directory); this.clock = clock; this.undoStack = []; this.trashUndoStack = []; this.textIdentities = new WeakMap();this.revision=0;
+    this.directory = path.resolve(directory); this.clock = clock; this.undoStack = []; this.trashUndoStack = []; this.textIdentities = new WeakMap();this.revision=0;this.inFlightMediaReferences=new Map();
     fs.mkdirSync(this.directory, {recursive: true, mode: 0o700});
     if(fs.lstatSync(this.directory).isSymbolicLink())fail('Application data must not be a symlink.');
     if(process.platform==='win32'){
@@ -165,6 +165,27 @@ class Store {
     } finally { if (descriptor != null) fs.closeSync(descriptor); if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
   }
   mediaReferences(){return new Set(this.data.items.flatMap(item=>[item.imageFile,item.renderedFile,item.thumbnailFile,item.videoFile,item.renderedVideoFile]).filter(Boolean));}
+  retainInFlightMedia(filename){this.inFlightMediaReferences.set(filename,(this.inFlightMediaReferences.get(filename)||0)+1);}
+  releaseInFlightMedia(files){for(const filename of files){const count=this.inFlightMediaReferences.get(filename)||0;if(count<=1)this.inFlightMediaReferences.delete(filename);else this.inFlightMediaReferences.set(filename,count-1);}}
+  mediaReferencesForCapacityCleanup(){
+    const referenced=this.mediaReferences(),backup=this.file+'.backup';let backupStat;
+    try{backupStat=fs.lstatSync(backup);}catch(error){if(error.code!=='ENOENT')return null;}
+    if(backupStat){
+      if(!backupStat.isFile()||backupStat.size>64*1024*1024)return null;
+      let previous;try{previous=JSON.parse(fs.readFileSync(backup,'utf8'));}catch{return null;}
+      if(previous?.schema!==1||!Array.isArray(previous.items)||previous.items.length>20000)return null;
+      for(const item of previous.items){
+        if(!item||typeof item!=='object'||Array.isArray(item))return null;
+        for(const filename of [item.imageFile,item.renderedFile,item.thumbnailFile,item.videoFile,item.renderedVideoFile]){
+          if(filename==null||filename==='')continue;
+          if(typeof filename!=='string'||!MANAGED_MEDIA.test(filename))return null;
+          referenced.add(filename);
+        }
+      }
+    }
+    for(const filename of this.inFlightMediaReferences.keys())referenced.add(filename);
+    return referenced;
+  }
   preparePermanentDeletion(){
     if(fs.lstatSync(this.mediaDirectory).isSymbolicLink())fail('Managed media must not be a symlink.');
     const referenced=this.mediaReferences(),files=fs.readdirSync(this.mediaDirectory).filter(name=>MANAGED_MEDIA.test(name)&&!referenced.has(name));
@@ -223,7 +244,7 @@ class Store {
     if(item.kind!=='image'||!filename||!/^[a-f0-9]{64}\.png$/.test(filename))fail('Image poster unavailable');
     const file=path.join(this.mediaDirectory,filename);if(!fs.existsSync(file)||!fs.lstatSync(file).isFile()||fs.lstatSync(file).isSymbolicLink())fail('Image poster unavailable');return file;
   }
-  async putVideo(source,{signal}={}){
+  async putVideo(source,{signal,onManagedFile}={}){
     if(typeof source!=='string'||!path.isAbsolute(source)||!['.mp4','.mov'].includes(path.extname(source).toLowerCase()))fail('Invalid recording file');
     if(fs.lstatSync(this.mediaDirectory).isSymbolicLink())fail('Unsafe managed media directory');
     const before=await fs.promises.lstat(source);if(!before.isFile()||before.isSymbolicLink()||before.size<12||before.size>MAXIMUM_VIDEO_BYTES)fail('Recording exceeds the 2 GB limit or is unavailable');
@@ -234,37 +255,48 @@ class Store {
       for(;;){if(signal?.aborted)fail('Video operation canceled');const {bytesRead}=await input.read(buffer,0,buffer.length,null);if(!bytesRead)break;total+=bytesRead;if(total>MAXIMUM_VIDEO_BYTES)fail('Recording exceeds the 2 GB limit');const bytes=buffer.subarray(0,bytesRead);hash.update(bytes);let written=0;while(written<bytesRead){const result=await output.write(bytes,written,bytesRead-written,null);if(!result.bytesWritten)fail('Recording could not be saved');written+=result.bytesWritten;}}
       const after=await input.stat(),pathAfter=await fs.promises.lstat(source);if(total!==before.size||after.size!==before.size||after.mtimeMs!==before.mtimeMs||pathAfter.isSymbolicLink()||pathAfter.ino!==before.ino||pathAfter.mtimeMs!==before.mtimeMs)fail('Recording changed while importing');
       await output.sync();await output.close();output=null;if(signal?.aborted)fail('Video operation canceled');const filename=hash.digest('hex')+path.extname(source).toLowerCase(),destination=path.join(this.mediaDirectory,filename);
+      onManagedFile?.(filename);
       try{await fs.promises.link(temporary,destination);}catch(error){if(error.code!=='EEXIST')throw error;const existing=await fs.promises.lstat(destination);if(!existing.isFile()||existing.isSymbolicLink()||existing.size!==total)fail('Managed recording is unsafe');}
       if(signal?.aborted)fail('Video operation canceled');return filename;
     }finally{await input?.close();await output?.close();try{await fs.promises.unlink(temporary);}catch(error){if(error.code!=='ENOENT')throw error;}}
   }
   async recordingAssets(value){
-    const details=recordingMetadata(value),videoFile=await this.putVideo(value.file,{signal:value.signal});
-    let poster=value.posterPNG;
-    if(!poster){if(typeof value.posterFile!=='string'||!path.isAbsolute(value.posterFile))fail('Recording poster unavailable');const stat=await fs.promises.lstat(value.posterFile);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>4*1024*1024)fail('Recording poster unavailable');poster=await fs.promises.readFile(value.posterFile);}
-    if(!Buffer.isBuffer(poster)||poster.length>4*1024*1024)fail('Invalid recording poster');
-    if(value.signal?.aborted)fail('Video operation canceled');return{details,videoFile,posterFile:this.putPNG(poster)};
+    const inFlightMediaFiles=[],retain=filename=>{this.retainInFlightMedia(filename);inFlightMediaFiles.push(filename);};
+    try{
+      const details=recordingMetadata(value),videoFile=await this.putVideo(value.file,{signal:value.signal,onManagedFile:retain});
+      let poster=value.posterPNG;
+      if(!poster){if(typeof value.posterFile!=='string'||!path.isAbsolute(value.posterFile))fail('Recording poster unavailable');const stat=await fs.promises.lstat(value.posterFile);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>4*1024*1024)fail('Recording poster unavailable');poster=await fs.promises.readFile(value.posterFile);}
+      if(!Buffer.isBuffer(poster)||poster.length>4*1024*1024)fail('Invalid recording poster');
+      if(value.signal?.aborted)fail('Video operation canceled');const posterFile=this.putPNG(poster);retain(posterFile);return{details,videoFile,posterFile,inFlightMediaFiles};
+    }catch(error){this.releaseInFlightMedia(inFlightMediaFiles);throw error;}
   }
   async insertRecording(value){
-    const assets=await this.recordingAssets(value),matching=this.data.items.filter(item=>item.recording&&!item.trashedAt&&item.videoFile===assets.videoFile),prior=matching.sort((a,b)=>b.createdAt-a.createdAt)[0];
-    if(value.signal?.aborted)fail('Video operation canceled');
-    if(!prior&&this.data.items.length>=20000){
-      const error=new Error('Library item limit reached'),referenced=this.mediaReferences();
-      for(const filename of [assets.videoFile,assets.posterFile])if(MANAGED_MEDIA.test(filename)&&!referenced.has(filename))try{fs.unlinkSync(path.join(this.mediaDirectory,filename));}catch{}
-      throw error;
-    }
-    const before=clone(this.data),now=this.clock();
+    const assets=await this.recordingAssets(value);
     try{
-      const item=prior||{id:crypto.randomUUID(),kind:'image',recording:true,text:'',url:'',title:'',name:'',pinned:false,folderIds:[],tags:[],note:'',retainedAt:null,lastCopiedAt:null,createdAt:now,updatedAt:now,trashedAt:null,hiddenFromShelf:false,annotations:[],crop:null,ocrText:'',imageFile:assets.posterFile,renderedFile:'',videoFile:assets.videoFile,renderedVideoFile:'',...assets.details};
-      item.createdAt=now;item.updatedAt=now;item.hiddenFromShelf=false;item.captureRevision=crypto.randomUUID();
-      this.data.items=[item,...this.data.items.filter(entry=>entry.id!==item.id)];this.expire(false);this.persist();return item;
-    }catch(error){this.data=before;throw error;}
+      const matching=this.data.items.filter(item=>item.recording&&!item.trashedAt&&item.videoFile===assets.videoFile),prior=matching.sort((a,b)=>b.createdAt-a.createdAt)[0];
+      if(value.signal?.aborted)fail('Video operation canceled');
+      if(!prior&&this.data.items.length>=20000){
+        this.releaseInFlightMedia(assets.inFlightMediaFiles);assets.inFlightMediaFiles=[];
+        const error=new Error('Library item limit reached'),referenced=this.mediaReferencesForCapacityCleanup();
+        if(referenced)for(const filename of [assets.videoFile,assets.posterFile])if(MANAGED_MEDIA.test(filename)&&!referenced.has(filename))try{fs.unlinkSync(path.join(this.mediaDirectory,filename));}catch{}
+        throw error;
+      }
+      const before=clone(this.data),now=this.clock();
+      try{
+        const item=prior||{id:crypto.randomUUID(),kind:'image',recording:true,text:'',url:'',title:'',name:'',pinned:false,folderIds:[],tags:[],note:'',retainedAt:null,lastCopiedAt:null,createdAt:now,updatedAt:now,trashedAt:null,hiddenFromShelf:false,annotations:[],crop:null,ocrText:'',imageFile:assets.posterFile,renderedFile:'',videoFile:assets.videoFile,renderedVideoFile:'',...assets.details};
+        item.createdAt=now;item.updatedAt=now;item.hiddenFromShelf=false;item.captureRevision=crypto.randomUUID();
+        this.data.items=[item,...this.data.items.filter(entry=>entry.id!==item.id)];this.expire(false);this.persist();return item;
+      }catch(error){this.data=before;throw error;}
+    }finally{this.releaseInFlightMedia(assets.inFlightMediaFiles);}
   }
   async commitRecordingTrim(value){
     const expected=this.item(value.id);if(!expected.recording||expected.trashedAt||typeof value.sourceFingerprint!=='string'||(expected.renderedVideoFile||expected.videoFile).slice(0,64)!==value.sourceFingerprint)fail('The recording changed before trimming');
-    const assets=await this.recordingAssets(value),item=this.item(value.id);if(!item.recording||item.trashedAt||(item.renderedVideoFile||item.videoFile).slice(0,64)!==value.sourceFingerprint)fail('The recording changed while trimming');
-    if(value.signal?.aborted)fail('Video operation canceled');
-    const before=clone(this.data);try{Object.assign(item,assets.details,{renderedVideoFile:assets.videoFile,renderedFile:assets.posterFile,updatedAt:this.clock()});this.persist();return item;}catch(error){this.data=before;throw error;}
+    const assets=await this.recordingAssets(value);
+    try{
+      const item=this.item(value.id);if(!item.recording||item.trashedAt||(item.renderedVideoFile||item.videoFile).slice(0,64)!==value.sourceFingerprint)fail('The recording changed while trimming');
+      if(value.signal?.aborted)fail('Video operation canceled');
+      const before=clone(this.data);try{Object.assign(item,assets.details,{renderedVideoFile:assets.videoFile,renderedFile:assets.posterFile,updatedAt:this.clock()});this.persist();return item;}catch(error){this.data=before;throw error;}
+    }finally{this.releaseInFlightMedia(assets.inFlightMediaFiles);}
   }
   insert(kind, value, extra = {}) {
     if (!KINDS.includes(kind)) fail('Invalid content kind');
@@ -456,3 +488,4 @@ class Store {
   }
 }
 module.exports = {Store, KINDS, DEFAULTS, settings, saved, plainURL, text, ids, protectDirectory};
+
