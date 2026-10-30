@@ -313,3 +313,10 @@ test('a changed recording source or removed record invalidates trim DOM preserva
 test('Esc cancels recording range and preview toolbar navigation cancels before switching items',async()=>{
  const f=fixture();await f.ready();const video=asRecording(f),other='00000000-0000-4000-8000-000000000007';f.state.items.push({...structuredClone(f.state.items[0]),id:other,recording:false,name:'Another image',createdAt:500,mediaUrl:'appmedia://media/'+other});f.api.emit({items:f.state.items});await f.ready();await f.key('Space');await f.key('KeyM');await f.input('trim-start','2',{dataset:{videoTrim:'startMs',seconds:'true'}});await f.key('Escape');assert.doesNotMatch(f.overlay,/trim-start-range/);assert.equal(f.commands.at(-1).action,'cancelTrim');assert.equal(f.state.items[0].durationMs,6000);await f.key('KeyM');await f.click('next');assert.equal(f.commands.at(-1).action,'cancelTrim');assert.equal(f.commands.filter(value=>value.action==='cancelTrim').length,2);assert.equal(f.commands.some(value=>value.action==='trimRecording'),false);assert.match(f.overlay,/id="preview-media"/);assert.match(f.overlay,/aria-label="Another image"/);assert.equal(video.sourceFingerprint,'a'.repeat(64));
 });
+
+test('Library domain filter ignores case, surrounding spaces and dots, www and an empty value like the native filter',async()=>{
+ const f=fixture();await f.ready();f.state.items[0].tags=['x'];f.state.items.find(item=>item.id===f.link).retainedAt=1;f.api.emit({items:f.state.items});await f.ready();await savedLibrary(f);await f.click('toggle-filters');
+ for(const value of ['example.com',' Example.COM ','WWW.example.com','.example.com.'])await f.input('domain-filter',value),assert.deepEqual(cards(f),[f.link],JSON.stringify(value));
+ await f.input('domain-filter','other.org');assert.deepEqual(cards(f),[]);
+ await f.input('domain-filter','  ');assert.deepEqual(cards(f),[f.image,f.link]);
+});
