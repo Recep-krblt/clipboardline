@@ -750,3 +750,10 @@ test('Library selection counts use the shared "%d selected" catalog entry in the
  const f=fixture();await f.ready();await f.key('KeyP');await f.key('ArrowDown');await f.key('KeyP');await f.api.command('library');await f.ready();await f.key('KeyA',{ctrl:true});
  for(const [language,expected]of [['tr','2 seçili'],['es','2 seleccionadas'],['zh-Hans','已选择 2 项'],['en','2 selected']]){f.api.emit({settings:{...f.state.settings,language}});await f.ready();assert.match(f.main,new RegExp('<span>'+expected+'</span>'),language);assert.match(f.main,new RegExp('<h2>'+expected+'</h2>'),language+' inspector');await f.click('add-to-folder');assert.match(f.overlay,new RegExp('<p>'+expected+' · '),language+' folder picker');await f.click('close-modal');}
 });
+test('Settings shortcut filter matches the displayed localized action titles as well as the English ones',async()=>{
+ const f=fixture();await f.ready();await f.api.command('settings');f.api.emit({settings:{...f.state.settings,language:'tr'}});await f.ready();await f.click('settings-tab',{tab:'shortcuts'});
+ const rows=()=>[...f.main.matchAll(/data-action="record-local" data-key-action="([^"]+)"/g)].map(match=>match[1]);
+ await f.input('shortcut-filter','kopyala');assert.ok(rows().includes('copy'));assert.ok(!rows().includes('pin'));
+ await f.input('shortcut-filter','Sabitle');assert.ok(rows().includes('pin'));assert.ok(!rows().includes('copy'));
+ await f.input('shortcut-filter','copy');assert.ok(rows().includes('copy'));
+});
