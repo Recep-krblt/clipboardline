@@ -745,3 +745,9 @@ test('export and shortcut-conflict notices follow the selected language',async()
   assert.equal(f.nodes.get('toast').textContent,"Bu kısayol Çöp Kutusu'na taşı için zaten kullanılıyor");
  }finally{fs.rmSync(directory,{recursive:true,force:true});}
 });
+
+for(const row of [{code:'ArrowUp',key:'ArrowUp',saved:'Control+Alt+Up'},{code:'ArrowLeft',key:'ArrowLeft',shift:true,saved:'Control+Alt+Shift+Left'},{code:'Equal',key:'+',shift:true,saved:'Control+Alt+Shift+Plus'}])test('global recorder saves Electron accelerator names for DOM-only keys: '+JSON.stringify(row),async()=>{
+ const f=fixture();await f.ready();await f.api.command('settings');await f.ready();await f.click('record-global',{keyAction:'search'});
+ await f.key(row.code,{key:row.key,ctrl:true,alt:true,shift:!!row.shift});await f.click('confirm-modal');
+ assert.equal(f.commands.filter(value=>value.action==='setSettings').at(-1).payload.patch.shortcuts.search,row.saved);
+});
