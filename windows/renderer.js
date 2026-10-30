@@ -86,6 +86,8 @@ function shortcutAllowed(action,context=shortcutContext()){
 }
 // Physical Key*/Digit* codes remain authoritative. Synthetic/native input can
 // omit them, so ASCII fallback letters and saved legacy letters share one form.
+// Electron accelerators name arrows Up/Down/Left/Right and the plus key Plus; DOM names are rejected.
+function globalAccelerator(key){return key.replace('Ctrl+','Control+').replace(/(^|\+)(Arrow(Up|Down|Left|Right)|\+)$/,(_match,prefix,name,arrow)=>prefix+(arrow||'Plus'));}
 function canonicalShortcut(value){return value.replace(/(^|\+)([a-z])$/,(_match,prefix,key)=>prefix+key.toUpperCase());}
 function shortcutCandidates(action,context=shortcutContext()){
  if(!shortcutAllowed(action,context))return[];
@@ -638,7 +640,7 @@ async function confirmModal(){const modal=ui.modal;if(!modal||modal.saving)retur
  if(modal.type==='record'){if(!modal.recordingReady)return;const key=canonicalShortcut(modal.key||'');
   if(modal.global&&key&&!key.split('+').some(part=>['Ctrl','Alt','Meta'].includes(part))){toast('Use Control or Alt with a key for a global shortcut.');return;}
   if(!modal.global&&key){const contexts=['shelves','library','imagePreview','textPreview','linkPreview','imageMarkup','textEditing','settings'];const conflict=Object.keys(DEFAULT_KEYS).find(action=>action!==modal.action&&contexts.some(context=>shortcutAllowed(modal.action,context)&&shortcutCandidates(action,context).includes(key)));if(conflict){toast(t('This shortcut is already used for %@').replace('%@',t(ACTION_TITLES[conflict])));return;}}
-  let saved=modal.global?key.replace('Ctrl+','Control+'):key;const previous=state.settings.shortcuts?.[modal.action]||'';if(modal.global&&canonicalShortcut(previous)===saved)saved=previous;
+  let saved=modal.global?globalAccelerator(key):key;const previous=state.settings.shortcuts?.[modal.action]||'';if(modal.global&&canonicalShortcut(previous)===saved)saved=previous;
   await command('setSettings',{recordingToken:modal.recordingToken,patch:{[modal.global?'shortcuts':'localShortcuts']:{[modal.action]:saved}}});closeModal(modal);return;}
  if(modal.type==='confirm'){if(modal.command==='trash'&&ui.view==='library'){if(await trashLibrarySelection(modal.payload.ids)&&ui.modal===modal)closeModal(modal);return;}const activeFolderRemoved=modal.command==='removeFolder'&&ui.scope==='folder'&&folderSubtreeContains(modal.payload?.id,ui.folder);const result=await command(modal.command,modal.payload);if(result&&ui.modal===modal){if(modal.command==='deleteTag'){ui.scope='saved';ui.tag=null;ui.favoritesOnly=false;ui.filterTags=ui.filterTags.filter(tag=>tag!==modal.payload.tag);}if(activeFolderRemoved){ui.scope='saved';ui.folder=null;}ui.selected.clear();ui.preview=null;ui.focus=null;focusFirst();render();closeModal(modal);}return;}
  if(modal.type==='new-folder'){const name=modal.value?.trim();if(!name)return;const result=await command('createFolder',{name,parentId:modal.parentId||null});if(result&&ui.modal===modal){if(modal.returnTo){ui.modal=modal.returnTo;renderOverlay();}else closeModal(modal);}return;}
