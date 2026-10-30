@@ -73,7 +73,7 @@ function fixture({deferInitialState=false,initialVisible=true}={}){
  async function drag(id,{alt=false}={}){const card=new Element();card.dataset.itemId=id;card.closest=selector=>selector==='[data-item-id]'?card:null;const data=new Map(),event={target:card,altKey:alt,dataTransfer:{effectAllowed:'',setData(type,value){data.set(type,value);}},preventDefault(){this.prevented=true;}};for(const listener of listeners.get('dragstart')||[])await listener(event);await ready();return{prevented:event.prevented,data,effectAllowed:event.dataTransfer.effectAllowed};}
  async function input(id,value,extra={}){const target=document.getElementById(id);Object.assign(target.dataset,extra.dataset||{});target.value=value;target.selectionStart=value.length;for(const listener of listeners.get('input')||[])await listener({target});await ready();}
  async function change(id,value,extra={}){const target=document.getElementById(id);target.value=value;Object.assign(target,extra);if(extra.dataset)target.dataset=extra.dataset;for(const listener of listeners.get('change')||[])await listener({target});await ready();}
- return{ready,key,input,click,change,pointer,columnGrip,columnDrag,drag,setVisualSearch(callback){visualSearch=callback;},failDetails(count=1){detailsFailures=count;},failFolder(){folderFailures++;},imageLoads,releaseInitialState(){releaseInitialState?.();},deferReply(action){let release;const promise=new Promise(resolve=>{release=resolve;});delayedReply={action,promise};return release;},failExportOnce(){exportFailures++;},failCleanupOnce(){cleanupFailures++;},failEditOnce(){editFailures++;},state,commands,nodes,image,text1,text2,link,api,get main(){return nodes.get('app').innerHTML;},get overlay(){return nodes.get('overlay-root').innerHTML;}};
+ return{document,ready,key,input,click,change,pointer,columnGrip,columnDrag,drag,setVisualSearch(callback){visualSearch=callback;},failDetails(count=1){detailsFailures=count;},failFolder(){folderFailures++;},imageLoads,releaseInitialState(){releaseInitialState?.();},deferReply(action){let release;const promise=new Promise(resolve=>{release=resolve;});delayedReply={action,promise};return release;},failExportOnce(){exportFailures++;},failCleanupOnce(){cleanupFailures++;},failEditOnce(){editFailures++;},state,commands,nodes,image,text1,text2,link,api,get main(){return nodes.get('app').innerHTML;},get overlay(){return nodes.get('overlay-root').innerHTML;}};
 }
 
 function cards(f){return [...f.main.matchAll(/<article class="[^"]*"[^>]*data-item-id="([^"]+)"/g)].map(match=>match[1]);}
@@ -314,6 +314,34 @@ test('Esc cancels recording range and preview toolbar navigation cancels before 
  const f=fixture();await f.ready();const video=asRecording(f),other='00000000-0000-4000-8000-000000000007';f.state.items.push({...structuredClone(f.state.items[0]),id:other,recording:false,name:'Another image',createdAt:500,mediaUrl:'appmedia://media/'+other});f.api.emit({items:f.state.items});await f.ready();await f.key('Space');await f.key('KeyM');await f.input('trim-start','2',{dataset:{videoTrim:'startMs',seconds:'true'}});await f.key('Escape');assert.doesNotMatch(f.overlay,/trim-start-range/);assert.equal(f.commands.at(-1).action,'cancelTrim');assert.equal(f.state.items[0].durationMs,6000);await f.key('KeyM');await f.click('next');assert.equal(f.commands.at(-1).action,'cancelTrim');assert.equal(f.commands.filter(value=>value.action==='cancelTrim').length,2);assert.equal(f.commands.some(value=>value.action==='trimRecording'),false);assert.match(f.overlay,/id="preview-media"/);assert.match(f.overlay,/aria-label="Another image"/);assert.equal(video.sourceFingerprint,'a'.repeat(64));
 });
 
+test('a background state push keeps keyboard focus on the focused dialog button instead of dropping it to the page',async()=>{
+ const f=fixture();await f.ready();await f.key('KeyF');
+ // The shared stub DOM does not parse markup; give the overlay just enough of one to model destroyed focus.
+ const overlay=f.nodes.get('overlay-root'),buttons=[],attribute=(html,name)=>html.match(new RegExp(' data-'+name+'="([^"]*)"'))?.[1];
+ Object.defineProperty(overlay,'innerHTML',{configurable:true,get(){return this._html||'';},set(html){
+  if(buttons.includes(f.document.activeElement))f.document.activeElement=f.document.body;
+  this._html=html;buttons.length=0;
+  for(const [, attributes] of html.matchAll(/<button([^>]*)>/g)){const button={id:'',dataset:{action:attribute(attributes,'action')},focus(){f.document.activeElement=this;}};if(button.dataset.action)buttons.push(button);}
+ }});
+ overlay.contains=node=>buttons.includes(node);
+ overlay.querySelectorAll=selector=>{const wanted=[...selector.matchAll(/\[data-(\w+)="([^"]*)"\]/g)];return wanted.length?buttons.filter(button=>wanted.every(([, key, value])=>button.dataset[key]===value)):[];};
+ overlay.querySelector=selector=>overlay.querySelectorAll(selector)[0]||null;
+ await f.click('new-note');
+ const cancels=buttons.filter(button=>button.dataset.action==='close-modal');assert.equal(cancels.length,2,'header close and footer Cancel');
+ cancels[1].focus();assert.equal(f.document.activeElement,cancels[1]);
+ f.api.emit({});await f.ready();
+ const rebuilt=buttons.filter(button=>button.dataset.action==='close-modal');
+ assert.notEqual(rebuilt[1],cancels[1],'the overlay was rebuilt');assert.equal(f.document.activeElement,rebuilt[1],'focus returns to the same (footer) Cancel button');
+ // A different dialog, or no focused button, must not steal focus.
+ f.document.activeElement=f.document.body;f.api.emit({});await f.ready();assert.equal(f.document.activeElement,f.document.body);
+ // An unmatchable selector (for example a stored tag with a control character) must not stop the refresh.
+ const again=buttons.filter(button=>button.dataset.action==='close-modal');again[1].focus();overlay.querySelectorAll=()=>{throw new SyntaxError('invalid selector');};
+ f.api.emit({});await f.ready();assert.ok(overlay.innerHTML.includes('close-modal'),'the overlay is still rebuilt');
+});
+test('Library Last copied falls back to the creation time, so editing a never-copied item does not reorder it',async()=>{
+ const f=fixture();await f.ready();f.state.items[1].lastCopiedAt=950;f.state.items[2].updatedAt=5000;f.api.emit({items:f.state.items});await f.ready();await recent(f);
+ await f.change('sort-filter','copied');assert.deepEqual(cards(f),[f.image,f.text1,f.text2,f.link]);
+});
 test('Library domain filter ignores case, surrounding spaces and dots, www and an empty value like the native filter',async()=>{
  const f=fixture();await f.ready();f.state.items[0].tags=['x'];f.state.items.find(item=>item.id===f.link).retainedAt=1;f.api.emit({items:f.state.items});await f.ready();await savedLibrary(f);await f.click('toggle-filters');
  for(const value of ['example.com',' Example.COM ','WWW.example.com','.example.com.'])await f.input('domain-filter',value),assert.deepEqual(cards(f),[f.link],JSON.stringify(value));
