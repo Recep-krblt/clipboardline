@@ -30,7 +30,11 @@ async function publicURL(input, resolver = dns.lookup) {
 }
 async function boundedFetch(input, {maximum = 512 * 1024, redirects = 3, resolver, timeout = 8000, deadline, guard} = {}) {
   if(guard)guard(new URL(input));
-  const {url, address} = await publicURL(input, resolver);
+  // `deadline` is a duration for the whole call chain: fix the end once, redirects get only what is left, DNS counts too.
+  const end = deadline ? Date.now() + deadline : 0, remaining = () => end - Date.now(), expired = () => new Error('Network request timed out');
+  let wait; const resolving = publicURL(input, resolver);
+  const {url, address} = deadline ? await Promise.race([resolving, new Promise((_, fail) => { wait = setTimeout(() => fail(expired()), deadline); })]).finally(() => clearTimeout(wait)) : await resolving;
+  if (deadline && remaining() <= 0) throw expired();
   return new Promise((resolve, reject) => {
     const request = (url.protocol === 'https:' ? https : http).get(url, {
       headers: {'User-Agent': 'ClipBoardLine/1.7.0', Accept: '*/*'},
@@ -39,7 +43,8 @@ async function boundedFetch(input, {maximum = 512 * 1024, redirects = 3, resolve
     }, response => {
       if ([301,302,303,307,308].includes(response.statusCode)) {
         response.resume(); if (!redirects || !response.headers.location) { reject(new Error('Too many redirects')); return; }
-        boundedFetch(new URL(response.headers.location, url).href, {maximum, redirects: redirects - 1, resolver, timeout, deadline, guard}).then(resolve, reject); return;
+        if (deadline && remaining() <= 0) { reject(expired()); return; }
+        boundedFetch(new URL(response.headers.location, url).href, {maximum, redirects: redirects - 1, resolver, timeout, deadline: deadline && remaining(), guard}).then(resolve, reject); return;
       }
       if (response.statusCode !== 200 || Number(response.headers['content-length'] || 0) > maximum) { response.destroy(); reject(new Error('Remote response is unavailable or too large')); return; }
       const blocks = []; let length = 0;
@@ -48,7 +53,7 @@ async function boundedFetch(input, {maximum = 512 * 1024, redirects = 3, resolve
     });
     request.on('timeout', () => request.destroy(new Error('Network request timed out'))); request.on('error', reject);
     // `timeout` is an idle-socket limit; a server dripping one byte per interval never trips it.
-    if (deadline) { const timer = setTimeout(() => request.destroy(new Error('Network request timed out')), deadline); request.once('close', () => clearTimeout(timer)); }
+    if (deadline) { const timer = setTimeout(() => request.destroy(expired()), remaining()); request.once('close', () => clearTimeout(timer)); }
   });
 }
 function metadataGuard(url){
