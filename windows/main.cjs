@@ -22,6 +22,7 @@ const {mediaResponse,mediaGenerationMatches}=require('./lib/media-response.cjs')
 const {MediaJobs,MAXIMUM_VIDEO_BYTES}=require('./lib/media.cjs');
 const {copyFiles,cancelFileCopies}=require('./lib/native-files.cjs');
 const {exportCopies}=require('./lib/export-copies.cjs');
+const {decodeTextFile}=require('./lib/text-file.cjs');
 const native = require('./lib/native.cjs');
 const {PasteTargetTracker}=require('./lib/paste-target.cjs');
 const {DragFiles}=require('./lib/drag-files.cjs');
@@ -258,7 +259,7 @@ async function importFile(file) {
     }finally{mediaJobs.release(inspected);}
   }
   if(stat.size>64*1024*1024)throw new Error('File exceeds import limit');
-  if(['.txt','.md'].includes(extension)) {if(stat.size>1024*1024)throw new Error('Text file exceeds import limit');const value=fs.readFileSync(file,'utf8').replace(/^\uFEFF/,'');return store.insert(plainURL(value)?'link':'text',value);}
+  if(['.txt','.md'].includes(extension)) {if(stat.size>1024*1024)throw new Error('Text file exceeds import limit');const value=decodeTextFile(fs.readFileSync(file));return store.insert(plainURL(value)?'link':'text',value);}
   const image=nativeImage.createFromPath(file);if(image.isEmpty())throw new Error('Unsupported image file');const item=store.insert('image',image.toPNG());queueOCR(item.id);refreshImageSearch();return item;
 }
 async function capture() {
