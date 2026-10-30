@@ -745,3 +745,10 @@ test('export and shortcut-conflict notices follow the selected language',async()
   assert.equal(f.nodes.get('toast').textContent,"Bu kısayol Çöp Kutusu'na taşı için zaten kullanılıyor");
  }finally{fs.rmSync(directory,{recursive:true,force:true});}
 });
+
+test('Tab onto an empty shelf leaves copy, take down, pin and preview with nothing to act on',async()=>{
+ const f=fixture();await f.ready();f.api.emit({items:f.state.items.filter(value=>value.kind!=='text')});await f.ready();
+ await f.key('Tab');assert.equal(activeKind(f),'text');const commands=f.commands.length;
+ for(const [code,extra]of [['Enter',{}],['KeyS',{}],['KeyP',{}],['Space',{}],['KeyC',{ctrl:true}]])await f.key(code,extra);
+ assert.deepEqual(f.commands.slice(commands).filter(command=>command.payload.ids?.length),[]);assert.equal(f.overlay,'');assert.equal(f.state.items.find(value=>value.id===f.image).trashedAt,null);assert.equal(f.state.windowVisible,true);
+});
