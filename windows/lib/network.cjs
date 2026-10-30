@@ -71,6 +71,20 @@ const entities = value => value.replace(/&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|
   const code = decimal ? Number(decimal) : parseInt(hex, 16);
   return code > 0x1f && code <= 0x10ffff && !(code >= 0x7f && code <= 0x9f) && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : match;
 });
+// Turkish pages are often still windows-1254 / ISO-8859-9; encoding sniffing order: BOM, header, XML declaration (XHTML only), early <meta charset>.
+function decodeHTML(bytes, type = '') {
+  const head = bytes.subarray(0, 2048).toString('latin1'), known = label => { try { return new TextDecoder(label).encoding; } catch { return ''; } };
+  // Encoding sniffing order: BOM, Content-Type charset parameter, XML declaration (XHTML), meta charset; unknown labels fall through.
+  const declared = [...head.matchAll(/<meta[^>]*[\s"';]charset\s*=\s*["']?([\w.:-]+)/gi)].map(match => /^utf-16/i.test(match[1]) ? 'utf-8' : match[1]), label = [
+    bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? 'utf-8' : '',
+    /(?:^|;)\s*charset\s*=\s*["']?([\w.:-]+)/i.exec(type)?.[1],
+    /application\/xhtml\+xml/i.test(type) ? /^\s*<\?xml[^>]*\sencoding\s*=\s*["']([\w.:-]+)/i.exec(head)?.[1] : '',
+    // A meta declaration of UTF-16 cannot be true for ASCII-compatible markup; HTML treats it as UTF-8.
+    ...declared
+  ].map(value => value && known(value)).find(Boolean);
+  if (label) return new TextDecoder(label).decode(bytes);
+  try { return new TextDecoder('utf-8', {fatal: true}).decode(bytes); } catch { return new TextDecoder('windows-1252').decode(bytes); }
+}
 const collapse = value => value.replace(/\s+/g, ' ').trim();
 function meta(html, name) {
   for (const match of html.matchAll(/<meta\b([^>]{0,4096})>/gi)) {
@@ -89,7 +103,7 @@ async function linkMetadata(input, fetcher = metadataFetch) {
     return {title: String(data.title || '').slice(0, 500), author: String(data.author_name || '').slice(0, 200), thumbnail: data.thumbnail_url || ''};
   }
   const response = await fetcher(url.href); if (!/text\/html|application\/xhtml/i.test(response.type)) return {title: url.hostname};
-  const html = response.bytes.toString('utf8');
+  const html = decodeHTML(response.bytes, response.type);
   // Collapse layout whitespace only in display text; og:image stays a URL.
   const title = collapse(meta(html, 'og:title')) || collapse(entities((html.match(/<title[^>]*>([\s\S]{0,2000}?)<\/title>/i)?.[1] || '').replace(/<[^>]*>/g, ''))) || url.hostname;
   let thumbnail = meta(html, 'og:image');
