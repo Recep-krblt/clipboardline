@@ -26,7 +26,7 @@ final class ScreenshotWatcher {
     private var listing = false
     /// A capture landed while that listing was in flight.
     private var missed = false
-    /// `stop()` arrived while one of the two was still pending.
+    /// `stop()` arrived while an open or listing was still pending.
     private var stopped = false
     private let onNew: (URL) -> Void
     private let onChange: () -> Void
@@ -84,14 +84,23 @@ final class ScreenshotWatcher {
         guard parentSource == nil, source == nil, !starting else { return }
         starting = true
         let parent = folder.deletingLastPathComponent()
+        let expectedGeneration = generation
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
-            let fd = open(parent.path, O_EVTONLY)
+            let parentFD = open(parent.path, O_EVTONLY)
+            let previousIdentity = self.identityOfFolder()
+            let folderFD = open(self.folder.path, O_EVTONLY)
+            let identity = self.identityOfFolder()
             DispatchQueue.main.async {
                 self.starting = false
-                self.watchParent(fd)
-                self.folderIdentity = self.identityOfFolder()
-                self.openFolderIfAvailable()
+                self.watchParent(parentFD)
+                self.folderIdentity = identity
+                if previousIdentity == identity {
+                    self.watch(folderFD, generation: expectedGeneration, identity: identity)
+                } else {
+                    if folderFD >= 0 { close(folderFD) }
+                    self.openFolderIfAvailable()
+                }
             }
         }
     }
@@ -117,7 +126,7 @@ final class ScreenshotWatcher {
 
     /// Starts the child watcher before listing so a capture that lands in
     /// between is not lost.
-    private func watch(_ fd: Int32, generation expectedGeneration: Int) {
+    private func watch(_ fd: Int32, generation expectedGeneration: Int, identity expectedIdentity: FolderIdentity?) {
         starting = false
         guard !stopped else {
             if fd >= 0 { close(fd) }
@@ -132,10 +141,9 @@ final class ScreenshotWatcher {
             NSLog("Tendedero: cannot watch \(folder.path)")
             return
         }
-        // The path may have changed while open() was in flight.
-        guard folderIdentity == identityOfFolder() else {
+        guard expectedIdentity == folderIdentity else {
             close(fd)
-            reconcileFolder()
+            reconcileFolder(expectedIdentity)
             return
         }
         let src = DispatchSource.makeFileSystemObjectSource(
@@ -153,21 +161,47 @@ final class ScreenshotWatcher {
         let expectedGeneration = generation
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
+            let previousIdentity = self.identityOfFolder()
             let fd = open(self.folder.path, O_EVTONLY)
-            DispatchQueue.main.async { self.watch(fd, generation: expectedGeneration) }
+            let identity = self.identityOfFolder()
+            DispatchQueue.main.async {
+                guard previousIdentity == identity else {
+                    if fd >= 0 { close(fd) }
+                    self.starting = false
+                    self.scheduleFolderCheck()
+                    return
+                }
+                self.watch(fd, generation: expectedGeneration, identity: identity)
+            }
         }
     }
 
     private func scheduleFolderCheck() {
         pendingFolderCheck?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.reconcileFolder() }
+        let work = DispatchWorkItem { [weak self] in self?.readFolderIdentity() }
         pendingFolderCheck = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
     }
 
-    private func reconcileFolder() {
+    private func readFolderIdentity() {
         guard !stopped else { return }
-        let currentIdentity = identityOfFolder()
+        let expectedGeneration = generation
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let identity = self.identityOfFolder()
+            DispatchQueue.main.async {
+                guard !self.stopped else { return }
+                guard expectedGeneration == self.generation else {
+                    self.scheduleFolderCheck()
+                    return
+                }
+                self.reconcileFolder(identity)
+            }
+        }
+    }
+
+    private func reconcileFolder(_ currentIdentity: FolderIdentity?) {
+        guard !stopped else { return }
         guard currentIdentity != folderIdentity else { return }
         folderIdentity = currentIdentity
         generation += 1
@@ -186,7 +220,6 @@ final class ScreenshotWatcher {
               let inode = attributes[.systemFileNumber] as? NSNumber else { return nil }
         return FolderIdentity(device: device.uint64Value, inode: inode.uint64Value)
     }
-
 
     /// Safe to call while `start()` or a listing is still pending: the file
     /// descriptor is closed as soon as it arrives, and a listing that lands
