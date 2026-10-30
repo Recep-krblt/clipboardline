@@ -130,7 +130,6 @@ final class ScreenshotWatcher {
     /// Starts the child watcher before listing so a capture that lands in
     /// between is not lost.
     private func watch(_ fd: Int32, generation expectedGeneration: Int, identity expectedIdentity: FolderIdentity?) {
-        NSLog("DEBUG watch fd=\(fd) expectedGeneration=\(expectedGeneration) generation=\(generation) identityMatches=\(expectedIdentity == folderIdentity)")
         starting = false
         guard !stopped else {
             if fd >= 0 { close(fd) }
@@ -160,7 +159,6 @@ final class ScreenshotWatcher {
     }
 
     private func openFolderIfAvailable() {
-        NSLog("DEBUG openFolder stopped=\(stopped) sourceNil=\(source == nil) starting=\(starting) listing=\(listing) hasIdentity=\(folderIdentity != nil) generation=\(generation)")
         guard !stopped, source == nil, !starting, !listing, folderIdentity != nil else { return }
         starting = true
         let expectedGeneration = generation
@@ -183,7 +181,6 @@ final class ScreenshotWatcher {
 
     private func startIdentityMonitor() {
         guard identityTimer == nil else { return }
-        NSLog("DEBUG identity timer starting")
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + .seconds(1), repeating: .seconds(1), leeway: .milliseconds(100))
         timer.setEventHandler { [weak self] in self?.readFolderIdentity() }
@@ -199,7 +196,6 @@ final class ScreenshotWatcher {
     }
 
     private func readFolderIdentity() {
-        NSLog("DEBUG identity check stopped=\(stopped) inFlight=\(identityCheckInFlight)")
         guard !stopped, !identityCheckInFlight else { return }
         identityCheckInFlight = true
         let expectedGeneration = generation
@@ -208,7 +204,6 @@ final class ScreenshotWatcher {
             let identity = self.identityOfFolder()
             DispatchQueue.main.async {
                 self.identityCheckInFlight = false
-                NSLog("DEBUG identity result available=\(identity != nil) same=\(identity == self.folderIdentity) expected=\(expectedGeneration) actual=\(self.generation)")
                 guard !self.stopped, expectedGeneration == self.generation else { return }
                 self.reconcileFolder(identity)
             }
@@ -216,7 +211,6 @@ final class ScreenshotWatcher {
     }
 
     private func reconcileFolder(_ currentIdentity: FolderIdentity?) {
-        NSLog("DEBUG reconcile identity changed=\(currentIdentity != folderIdentity)")
         guard !stopped else { return }
         guard currentIdentity != folderIdentity else { return }
         folderIdentity = currentIdentity
@@ -274,7 +268,6 @@ final class ScreenshotWatcher {
         }
         listing = true
         let requestedGeneration = generation
-        NSLog("DEBUG refresh started generation=\(requestedGeneration)")
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             let files = self.listFolder()
@@ -290,7 +283,6 @@ final class ScreenshotWatcher {
     /// that was asked for while this one was in flight.
     private func adopt(_ files: [URL], _ settled: [URL], _ candidates: [URL], generation requestedGeneration: Int) {
         listing = false
-        NSLog("DEBUG adopt requestedGeneration=\(requestedGeneration) generation=\(generation) files=\(files.count) stopped=\(stopped)")
         guard !stopped else { return }
         guard requestedGeneration == generation else {
             openFolderIfAvailable()
@@ -300,9 +292,7 @@ final class ScreenshotWatcher {
         // app launched. Later ones compare against the previous listing.
         let first = known == nil
         let base = known ?? Set(settled.map(\.path))
-        NSLog("DEBUG adopt candidates=\(candidates.count) settled=\(settled.count) base=\(base.count) first=\(first)")
         for url in candidates where !base.contains(url.path) {
-            NSLog("DEBUG candidate selected path=\(url.path)")
             onNew(url)
         }
         known = Set(files.map(\.path))
