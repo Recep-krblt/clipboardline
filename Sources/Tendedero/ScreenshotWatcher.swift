@@ -182,7 +182,7 @@ final class ScreenshotWatcher {
     private func startIdentityMonitor() {
         guard identityTimer == nil else { return }
         let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + 1, repeating: 1, leeway: .milliseconds(100))
+        timer.schedule(deadline: .now() + .seconds(1), repeating: .seconds(1), leeway: .milliseconds(100))
         timer.setEventHandler { [weak self] in self?.readFolderIdentity() }
         timer.resume()
         identityTimer = timer
