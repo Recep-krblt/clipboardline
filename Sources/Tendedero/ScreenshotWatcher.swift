@@ -300,7 +300,9 @@ final class ScreenshotWatcher {
         // app launched. Later ones compare against the previous listing.
         let first = known == nil
         let base = known ?? Set(settled.map(\.path))
+        NSLog("DEBUG adopt candidates=\(candidates.count) settled=\(settled.count) base=\(base.count) first=\(first)")
         for url in candidates where !base.contains(url.path) {
+            NSLog("DEBUG candidate selected path=\(url.path)")
             onNew(url)
         }
         known = Set(files.map(\.path))
