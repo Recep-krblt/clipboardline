@@ -16,6 +16,8 @@ final class ScreenshotWatcher {
     private var parentSource: DispatchSourceFileSystemObject?
     private var pending: DispatchWorkItem?
     private var pendingFolderCheck: DispatchWorkItem?
+    private var identityTimer: DispatchSourceTimer?
+    private var identityCheckInFlight = false
     /// Identity of the directory currently found at folder.
     private var folderIdentity: FolderIdentity?
     /// Invalidates a listing or open that started before the folder changed.
@@ -94,6 +96,7 @@ final class ScreenshotWatcher {
             DispatchQueue.main.async {
                 self.starting = false
                 self.watchParent(parentFD)
+                self.startIdentityMonitor()
                 self.folderIdentity = identity
                 if previousIdentity == identity {
                     self.watch(folderFD, generation: expectedGeneration, identity: identity)
@@ -176,6 +179,15 @@ final class ScreenshotWatcher {
         }
     }
 
+    private func startIdentityMonitor() {
+        guard identityTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 1, repeating: 1, leeway: .milliseconds(100))
+        timer.setEventHandler { [weak self] in self?.readFolderIdentity() }
+        timer.resume()
+        identityTimer = timer
+    }
+
     private func scheduleFolderCheck() {
         pendingFolderCheck?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.readFolderIdentity() }
@@ -184,17 +196,15 @@ final class ScreenshotWatcher {
     }
 
     private func readFolderIdentity() {
-        guard !stopped else { return }
+        guard !stopped, !identityCheckInFlight else { return }
+        identityCheckInFlight = true
         let expectedGeneration = generation
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self else { return }
             let identity = self.identityOfFolder()
             DispatchQueue.main.async {
-                guard !self.stopped else { return }
-                guard expectedGeneration == self.generation else {
-                    self.scheduleFolderCheck()
-                    return
-                }
+                self.identityCheckInFlight = false
+                guard !self.stopped, expectedGeneration == self.generation else { return }
                 self.reconcileFolder(identity)
             }
         }
@@ -231,6 +241,8 @@ final class ScreenshotWatcher {
         pending = nil
         pendingFolderCheck?.cancel()
         pendingFolderCheck = nil
+        identityTimer?.cancel()
+        identityTimer = nil
         generation += 1
         source?.cancel()
         source = nil
