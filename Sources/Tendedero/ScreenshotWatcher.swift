@@ -16,6 +16,7 @@ final class ScreenshotWatcher {
     private var parentSource: DispatchSourceFileSystemObject?
     private var pending: DispatchWorkItem?
     private var pendingFolderCheck: DispatchWorkItem?
+    private var identityTimer: DispatchSourceTimer?
     private var identityCheckInFlight = false
     /// Identity of the directory currently found at folder.
     private var folderIdentity: FolderIdentity?
@@ -95,6 +96,7 @@ final class ScreenshotWatcher {
             DispatchQueue.main.async {
                 self.starting = false
                 self.watchParent(parentFD)
+                self.startIdentityMonitor()
                 self.folderIdentity = identity
                 if previousIdentity == identity {
                     self.watch(folderFD, generation: expectedGeneration, identity: identity)
@@ -177,6 +179,15 @@ final class ScreenshotWatcher {
         }
     }
 
+    private func startIdentityMonitor() {
+        guard identityTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + .seconds(1), repeating: .seconds(1), leeway: .milliseconds(100))
+        timer.setEventHandler { [weak self] in self?.readFolderIdentity() }
+        timer.resume()
+        identityTimer = timer
+    }
+
     private func scheduleFolderCheck() {
         pendingFolderCheck?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.readFolderIdentity() }
@@ -230,6 +241,8 @@ final class ScreenshotWatcher {
         pending = nil
         pendingFolderCheck?.cancel()
         pendingFolderCheck = nil
+        identityTimer?.cancel()
+        identityTimer = nil
         generation += 1
         source?.cancel()
         source = nil
