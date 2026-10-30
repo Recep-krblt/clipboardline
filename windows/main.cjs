@@ -21,6 +21,7 @@ const {mediaOrigin}=require('./lib/media-policy.cjs');
 const {mediaResponse,mediaGenerationMatches}=require('./lib/media-response.cjs');
 const {MediaJobs,MAXIMUM_VIDEO_BYTES}=require('./lib/media.cjs');
 const {copyFiles,cancelFileCopies}=require('./lib/native-files.cjs');
+const {exportCopies}=require('./lib/export-copies.cjs');
 const native = require('./lib/native.cjs');
 const {PasteTargetTracker}=require('./lib/paste-target.cjs');
 const {DragFiles}=require('./lib/drag-files.cjs');
@@ -102,7 +103,7 @@ function createTray(){
   trayPresentation=new StatusTray({tray,createIcon:summary=>trayIcon(nativeImage,appIcon(),summary),createMenu:summary=>{
     const t=(key,...values)=>translated(summary.language,key,...values);
     return Menu.buildFromTemplate([{id:'tray-show',label:t('Show line'),click:()=>show('shelves')},{id:'tray-library',label:t('Library'),click:()=>show('library')},{id:'tray-capture',label:t('Screenshots'),click:()=>capture()},{id:'tray-settings',label:t('Settings'),click:()=>show('settings')},
-      ...(summary.updateVersion?[{id:'tray-update',label:t('Update available')+': '+summary.updateVersion+'â€¦',click:openUpdates}]:[]),{id:'tray-check',label:t('Check for updatesâ€¦'),click:async()=>{await openUpdates();await updates.check();}},{type:'separator'},{id:'tray-quit',label:t('Quit %@','ClipBoardLine'),click:()=>app.quit()}]);
+      ...(summary.updateVersion?[{id:'tray-update',label:t('Update available')+': '+summary.updateVersion+'…',click:openUpdates}]:[]),{id:'tray-check',label:t('Check for updates…'),click:async()=>{await openUpdates();await updates.check();}},{type:'separator'},{id:'tray-quit',label:t('Quit %@','ClipBoardLine'),click:()=>app.quit()}]);
   }});
   refreshTray();tray.on('click',()=>desiredVisible?hide():show('shelves'));
 }
@@ -170,7 +171,7 @@ async function hide(restore=true) {
   try{await operation;}finally{if(hidePromise===operation)hidePromise=null;}
 }
 async function clipboardContent() {
-  return readClipboardContent({clipboard,sequence:()=>native.clipboardSequence(),marker:copyMarker,plainURL});
+  return readClipboardContent({clipboard,sequence:()=>native.clipboardSequence(),marker:copyMarker,plainURL,captureLinks:store?.data.settings.captureLinks!==false});
 }
 async function readClipboard() {
   if(capturing){pendingClipboard=true;return;}if(!store||closing||!['captureText','captureImages','captureLinks'].some(key=>store.data.settings[key]))return;capturing=true;
@@ -257,7 +258,7 @@ async function importFile(file) {
     }finally{mediaJobs.release(inspected);}
   }
   if(stat.size>64*1024*1024)throw new Error('File exceeds import limit');
-  if(['.txt','.md'].includes(extension)) {if(stat.size>1024*1024)throw new Error('Text file exceeds import limit');const value=fs.readFileSync(file,'utf8');return store.insert(plainURL(value)?'link':'text',value);}
+  if(['.txt','.md'].includes(extension)) {if(stat.size>1024*1024)throw new Error('Text file exceeds import limit');const value=fs.readFileSync(file,'utf8').replace(/^\uFEFF/,'');return store.insert(plainURL(value)?'link':'text',value);}
   const image=nativeImage.createFromPath(file);if(image.isEmpty())throw new Error('Unsupported image file');const item=store.insert('image',image.toPNG());queueOCR(item.id);refreshImageSearch();return item;
 }
 async function capture() {
@@ -277,7 +278,7 @@ async function recognize(id,quiet=false) {
   const item=store.item(id);if(item.kind!=='image'||item.recording)throw new Error('OCR requires a still image');
   const file=store.mediaPath(id);const fingerprint=item.renderedFile||item.imageFile;
   if(item.ocrText)return{text:item.ocrText,id};
-  if(!quiet)notify('Recognizing image text locallyâ€¦');
+  if(!quiet)notify('Recognizing image text locally…');
   const {createWorker}=require('tesseract.js');
   const languageDirectory=path.join(store.directory,'ocr-models');fs.mkdirSync(languageDirectory,{recursive:true});
   for(const language of ['eng','tur']) {
@@ -363,23 +364,15 @@ async function command(action,payload={}) {
   }
   else if(action==='capture')result=await capture();
   else if(action==='newNote'){const item=store.insert('text',payload.text||'New note');if(payload.title)store.modify('details',{id:item.id,name:payload.title});store.modify('retain',{ids:[item.id]});result={id:item.id};}
-  else if(action==='import'){const response=await dialog.showOpenDialog(window,{properties:['openFile','multiSelections'],filters:[{name:'Images, recordings and text',extensions:['png','jpg','jpeg','webp','bmp','mov','mp4','txt','md']}]});const imported=[],failures=[];for(const file of response.filePaths){try{const item=await importFile(file);imported.push(item.id);if(item.kind==='link')void enrich(item.id);}catch(error){failures.push(path.basename(file)+': '+error.message);}}result={ids:imported,failed:failures.length};if(failures.length)message=(imported.length?`Imported ${imported.length} Â· failed ${failures.length}. `:'')+failures[0];}
+  else if(action==='import'){const response=await dialog.showOpenDialog(window,{properties:['openFile','multiSelections'],filters:[{name:'Images, recordings and text',extensions:['png','jpg','jpeg','webp','bmp','mov','mp4','txt','md']}]});const imported=[],failures=[];for(const file of response.filePaths){try{const item=await importFile(file);imported.push(item.id);if(item.kind==='link')void enrich(item.id);}catch(error){failures.push(path.basename(file)+': '+error.message);}}result={ids:imported,failed:failures.length};if(failures.length)message=(imported.length?`Imported ${imported.length} · failed ${failures.length}. `:'')+failures[0];}
   else if(action==='searchImages'){if(!imageSearch)throw new Error('Offline image search is unavailable.');result=await imageSearch.search(payload.query,payload.eligibleIds);}
   else if(action==='ocr')result=await ocr(payload.id);
   else if(action==='copyOCR'){const recognized=await ocr(payload.id);if(!recognized.text.trim())throw new Error('No text found in this image.');await writeClipboard([{kind:'text',text:recognized.text}]);result=recognized;notify('Recognized text copied');}
   else if(action==='export'){
     const selected=store.selected(ids(payload.ids));if(!selected.length)throw new Error('Select an item first');
     const response=await dialog.showOpenDialog(window,{properties:['openDirectory','createDirectory']});if(response.filePaths[0]){
-      let exported=0,failed=0;
-      for(const item of selected){try{const label=(item.name||item.title||item.kind).replace(/[<>:"/\\|?*\x00-\x1F]/g,'-').replace(/[. ]+$/g,'').slice(0,100)||item.kind;const extension=item.kind==='image'?(item.recording?path.extname(store.mediaPath(item.id)):'.png'):item.kind==='link'?'.url':'.txt';let index=1,destination;
-        do{destination=path.join(response.filePaths[0],label+(index>1?'-'+index:'')+extension);index++;}while(fs.existsSync(destination));
-        if(item.kind==='image')await fs.promises.copyFile(store.mediaPath(item.id),destination,fs.constants.COPYFILE_EXCL);
-        else fs.writeFileSync(destination,Buffer.from(item.kind==='link'?'[InternetShortcut]\r\nURL='+item.url+'\r\n':item.text),{flag:'wx'});
-        exported++;}catch{failed++;}
-      }
-      // Match the Mac export: keep copying after one failure, then report both counts.
-      if(!exported)throw new Error('Could not export copies');
-      result={count:exported,failed};message=`Exported ${exported} Â· failed ${failed}`;
+      const exported=await exportCopies(selected,response.filePaths[0],{mediaPath:id=>store.mediaPath(id)});
+      result={count:exported.count,failed:exported.failed};message=exported.message;
     }
   }
   else if(action==='startDrag'){
@@ -483,4 +476,3 @@ else app.whenReady().then(async()=>{
 app.on('second-instance',()=>{if(window)void show('shelves');});
 app.on('activate',()=>{if(window)void show('shelves');});
 app.on('before-quit',()=>{closing=true;visibilityGeneration++;shelfMotion.cancel();trayPresentation?.dispose();tray?.destroy();cancelRecordingTrims();mediaJobs?.dispose();dragFiles?.dispose();clearTimeout(imageSearchTimer);void imageSearch?.stop();clearInterval(clipboardTimer);clearInterval(retentionTimer);clearInterval(updateTimer);clearTimeout(updateLaunchTimer);monitor?.kill();watchers.forEach(w=>w.close());shortcutRegistry?.dispose();globalShortcut.unregisterAll();});
-
