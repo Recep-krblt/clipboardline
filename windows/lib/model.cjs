@@ -83,6 +83,13 @@ const foldedName=value=>value.normalize('NFKD').replace(/\p{M}/gu,'').toLowerCas
 function trashUndoFingerprint(item){return crypto.createHash('sha256').update(JSON.stringify(item)).digest('hex');}
 function trashUndoMatches(item,entry){return !!item&&item.trashedAt!=null&&item.trashedAt===entry.afterTrashedAt&&item.updatedAt===entry.afterUpdatedAt&&(item.captureRevision??null)===entry.captureRevision&&trashUndoFingerprint(item)===entry.fingerprint;}
 function availableTrashUndo(items,journal){if(!journal?.length)return false;const byID=new Map(items.map(item=>[item.id,item]));for(let index=journal.length-1;index>=0;index--)if(journal[index].some(entry=>trashUndoMatches(byID.get(entry.id),entry)))return true;return false;}
+// Match macOS cleanedName: at most 64 Characters (grapheme clusters, like
+// Swift's String.count) and nothing from CharacterSet.controlCharacters (Cc and
+// Cf), whether a tag is added or renamed.
+const graphemes=new Intl.Segmenter('en',{granularity:'grapheme'});
+// 64 graphemes can span far more UTF-16 units; this only bounds raw input.
+const TAG_INPUT_LIMIT=4096;
+const validTagName=name=>!/[\p{Cc}\p{Cf}]/u.test(name)&&[...graphemes.segment(name)].length<=64;
 function saved(item) { return item.retainedAt != null || item.pinned || item.folderIds.length > 0 || item.tags.length > 0; }
 // Match macOS LinkIdentity.standalone: a copied URL keeps its link identity
 // when the source adds a trailing newline or surrounding spaces.
@@ -344,12 +351,12 @@ class Store {
       this.pruneRecentFolders();this.persist();this.invalidateTrashUndo(this.data.items.filter(item=>originalMemberships.get(item.id)!==JSON.stringify(item.folderIds)).map(item=>item.id));return;
     }
     if(action==='renameTag'||action==='deleteTag') {
-      const tag=text(payload.tag,80).trim(),affected=this.data.items.filter(item=>item.tags.includes(tag));
+      const tag=text(payload.tag,TAG_INPUT_LIMIT).trim(),affected=this.data.items.filter(item=>item.tags.includes(tag));
       if(!tag||!affected.length)fail('Tag unavailable');
       let name;
       if(action==='renameTag'){
-        name=text(payload.name,256).trim();
-        if(!name||Array.from(name).length>64||/[\u0000-\u001f\u007f-\u009f]/u.test(name))fail('Invalid tag name');
+        name=text(payload.name,TAG_INPUT_LIMIT).trim();
+        if(!name||!validTagName(name))fail('Invalid tag name');
         const folded=value=>value.normalize('NFKD').replace(/\p{M}/gu,'').toLowerCase();
         if(this.data.items.some(item=>item.tags.some(value=>value!==tag&&folded(value)===folded(name))))fail('A tag with this name already exists');
       }
@@ -388,10 +395,13 @@ class Store {
         if(typeof payload.folderId!=='string'||!this.data.folders.some(f=>f.id===payload.folderId))fail('Folder unavailable');
         item.folderIds=item.folderIds.filter(id=>id!==payload.folderId);
       } else if(action==='removeTag') {
-        const tag=text(payload.tag,80).trim();item.tags=item.tags.filter(value=>value!==tag);
+        const tag=text(payload.tag,TAG_INPUT_LIMIT).trim();item.tags=item.tags.filter(value=>value!==tag);
       } else if (action === 'tag') {
         if (!Array.isArray(payload.tags) || payload.tags.length > 50) fail('Invalid tags');
-        item.tags = [...new Set(payload.tags.map(tag => text(tag, 80).trim()).filter(Boolean))];
+        const tags = [...new Set(payload.tags.map(tag => text(tag, TAG_INPUT_LIMIT).trim()).filter(Boolean))];
+        // Existing longer tags stay editable; only newly added names must fit.
+        if (tags.some(tag => !item.tags.includes(tag) && !validTagName(tag))) fail('Invalid tag name');
+        item.tags = tags;
         if(item.tags.length)item.retainedAt??=now;
       } else if (action === 'remove') { if (saved(item)) item.hiddenFromShelf = true; else{item.trashedAt = now;item.trashRevision=crypto.randomUUID();} }
       else if (action === 'trash') item.trashedAt = now;
