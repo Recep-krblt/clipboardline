@@ -335,3 +335,9 @@ test('a background state push keeps keyboard focus on the focused dialog button 
  // A different dialog, or no focused button, must not steal focus.
  f.document.activeElement=f.document.body;f.api.emit({});await f.ready();assert.equal(f.document.activeElement,f.document.body);
 });
+test('Library domain filter ignores case, surrounding spaces and dots, www and an empty value like the native filter',async()=>{
+ const f=fixture();await f.ready();f.state.items[0].tags=['x'];f.state.items.find(item=>item.id===f.link).retainedAt=1;f.api.emit({items:f.state.items});await f.ready();await savedLibrary(f);await f.click('toggle-filters');
+ for(const value of ['example.com',' Example.COM ','WWW.example.com','.example.com.'])await f.input('domain-filter',value),assert.deepEqual(cards(f),[f.link],JSON.stringify(value));
+ await f.input('domain-filter','other.org');assert.deepEqual(cards(f),[]);
+ await f.input('domain-filter','  ');assert.deepEqual(cards(f),[f.image,f.link]);
+});

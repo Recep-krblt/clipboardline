@@ -17,6 +17,14 @@ test('sibling folder names are unique ignoring case and diacritics like macOS',(
  const other=s.modify('createFolder',{name:'Personal'});assert.throws(()=>s.modify('renameFolder',{id:other.id,name:'WORK'}),/already exists/);assert.equal(s.data.folders.find(folder=>folder.id===other.id).name,'Personal');
  s.modify('renameFolder',{id:work.id,name:'work'});assert.equal(s.data.folders.find(folder=>folder.id===work.id).name,'work');
 }));
+test('folder names share the macOS 64-grapheme and control-character rule',()=>fixture(s=>{
+ const limit='f'.repeat(64),flags='\u{1F1F9}\u{1F1F7}'.repeat(64),folder=s.modify('createFolder',{name:limit});assert.equal(folder.name,limit);
+ assert.equal(s.modify('createFolder',{name:flags}).name,flags);
+ for(const name of ['f'.repeat(65),'bad\u0007name','zero\u200Bwidth','a\u0000b'])assert.throws(()=>s.modify('createFolder',{name}),/Invalid (folder name|text)/);
+ const other=s.modify('createFolder',{name:'Other'});
+ for(const name of ['f'.repeat(65),'bad\u0007name','zero\u200Bwidth'])assert.throws(()=>s.modify('renameFolder',{id:other.id,name}),/Invalid folder name/);
+ assert.equal(s.data.folders.find(entry=>entry.id===other.id).name,'Other');assert.equal(s.data.folders.length,3);
+}));
 test('retention is per-kind; pinned/folder/tag records remain permanent',()=>fixture((s,time)=>{const text=s.insert('text','expiring text'),link=s.insert('link','https://example.com'),saved=s.insert('text','tagged');s.modify('tag',{ids:[saved.id],tags:['keep']});s.modify('setSettings',{patch:{retentionDays:{text:1,link:3,image:0}}});time(2*86400000);s.expire();assert.ok(text.trashedAt);assert.equal(link.trashedAt,null);assert.equal(saved.trashedAt,null);}));
 test('remove hides saved items, trashes temporary ones; undo preserves later edits',()=>fixture(s=>{const saved=s.insert('text','saved'),temp=s.insert('text','temporary');s.modify('pin',{ids:[saved.id]});s.modify('remove',{ids:[saved.id,temp.id]});assert.equal(saved.hiddenFromShelf,true);assert.ok(temp.trashedAt);s.modify('name',{id:saved.id,name:'Later name'});s.modify('undo');assert.equal(saved.hiddenFromShelf,false);assert.equal(temp.trashedAt,null);assert.equal(saved.name,'Later name');}));
 test('explicit Trash invalidates removal undo and deletion requires Trash',()=>fixture(s=>{const item=s.insert('text','text');assert.throws(()=>s.modify('delete',{ids:[item.id]}));s.modify('remove',{ids:[item.id]});s.modify('restore',{ids:[item.id]});assert.equal(s.undoStack.length,0);s.modify('trash',{ids:[item.id]});s.modify('delete',{ids:[item.id]});assert.equal(s.data.items.length,0);}));
