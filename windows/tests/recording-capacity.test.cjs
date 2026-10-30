@@ -106,7 +106,10 @@ test('real video import registers its file before a concurrent capacity cleanup'
   assert.equal(path.basename(destination),trimmedName);
   assert.equal(store.inFlightMediaReferences.get(trimmedName),1);
   assert.equal(fs.existsSync(destination),false);
-  try{await assert.rejects(store.insertRecording(recording(trimmedFile)),/Library item limit reached/);}finally{releaseLink();}
+  try{
+   await assert.rejects(store.insertRecording(recording(trimmedFile)),/Library item limit reached/);
+   assert.ok(fs.existsSync(destination));
+  }finally{releaseLink();}
   await trim;
   assert.equal(store.item(original.id).renderedVideoFile,trimmedName);
   assert.ok(fs.existsSync(destination));
