@@ -117,7 +117,7 @@ final class ScreenshotWatcher {
             return
         }
         let src = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
+            fileDescriptor: fd, eventMask: [.write, .attrib, .rename, .delete], queue: .main)
         src.setEventHandler { [weak self] in self?.scheduleFolderCheck() }
         src.setCancelHandler { close(fd) }
         src.resume()
