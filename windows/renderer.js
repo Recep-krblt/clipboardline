@@ -129,7 +129,8 @@ function libraryBaseItems() { return state.items.filter(value=>{
  if(ui.type!=='all'&&value.kind!==ui.type)return false;
  if(ui.filterTags.some(tag=>!value.tags?.includes(tag)))return false;
  if(ui.days&&value.createdAt<Date.now()-ui.days*86400000)return false;
- if(ui.domain){try{const host=new URL(value.url).hostname.replace(/^www\./,'');const wanted=ui.domain.replace(/^www\./,'').toLowerCase();if(host!==wanted&&!host.endsWith('.'+wanted))return false;}catch{return false;}}
+ const wanted=ui.domain.trim().toLowerCase().replace(/^\.+|\.+$/g,'').replace(/^www\./,'');
+ if(wanted){try{const host=new URL(value.url).hostname.replace(/^www\./,'');if(host!==wanted&&!host.endsWith('.'+wanted))return false;}catch{return false;}}
  return true;
  }); }
 function libraryItems(){const values=libraryBaseItems().filter(value=>{if(!ui.search)return true;const textMatch=matches(value,ui.search),visualMatch=value.kind==='image'&&libraryImageSearch.ids.has(value.id);return ui.searchMode==='visual'?visualMatch:ui.searchMode==='text'?textMatch:textMatch||visualMatch;});return values.sort((a,b)=>ui.sort==='oldest'?a.createdAt-b.createdAt:ui.sort==='title'?title(a).localeCompare(title(b)):ui.sort==='titleDescending'?title(b).localeCompare(title(a)):ui.sort==='relevance'?libraryRelevance(b)-libraryRelevance(a)||b.createdAt-a.createdAt:ui.sort==='copied'?(b.lastCopiedAt||b.copiedAt||b.updatedAt)-(a.lastCopiedAt||a.copiedAt||a.updatedAt):b.createdAt-a.createdAt);}
