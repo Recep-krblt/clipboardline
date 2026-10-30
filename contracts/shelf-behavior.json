@@ -37,8 +37,8 @@
       },
       {
         "id": "localized-selection-count",
-        "behavior": "The Library footer, the multi-selection details panel and the folder picker show the number of selected items with the shared \"%d selected\" catalog entry in the language selected in Settings.",
-        "macos": "LibraryWindow uses String(format: L(\"%d selected\"), count) for the footer and the multi-selection title.",
+        "behavior": "The Library footer and the multi-selection details panel show the number of selected items with the shared \"%d selected\" catalog entry in the language selected in Settings. The folder picker heading shows the selected count in that language too.",
+        "macos": "LibraryWindow uses String(format: L(\"%d selected\"), count) for the footer and the multi-selection title. PinFolderPicker shows the count in its own localized heading, String(format: L(\"Pin %d items to a folder\"), count).",
         "windows": "The renderer formats the count with the shared \"%d selected\" catalog entry (selectedLabel); renderer-ui.test.cjs checks the footer, the details panel and the folder picker in Turkish, Spanish, Simplified Chinese and English."
       }
     ]
