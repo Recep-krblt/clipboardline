@@ -6,6 +6,7 @@ module.exports=async function settingsToggleFocusAcceptance({page,until,check}){
  const wasChecked=previous.settings.sounds===true;
  await page.evaluate(()=>window.clipboardLine.command('settings'));
  await until(()=>page.evaluate(()=>window.clipboardLine.state()),state=>state.view==='settings');
+ await page.locator('.settings-tabs [data-action="settings-tab"][data-tab="general"]').click();
  const toggle=page.locator('input[data-setting="sounds"]');
  await toggle.waitFor({state:'visible'});
  await toggle.focus();
