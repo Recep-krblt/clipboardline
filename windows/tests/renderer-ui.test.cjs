@@ -748,5 +748,5 @@ test('export and shortcut-conflict notices follow the selected language',async()
 
 test('Library selection counts use the shared "%d selected" catalog entry in the chosen language',async()=>{
  const f=fixture();await f.ready();await f.key('KeyP');await f.key('ArrowDown');await f.key('KeyP');await f.api.command('library');await f.ready();await f.key('KeyA',{ctrl:true});
- for(const [language,expected]of [['tr','2 seçili'],['es','2 seleccionadas'],['zh-Hans','已选择 2 项'],['en','2 selected']]){f.api.emit({settings:{...f.state.settings,language}});await f.ready();assert.match(f.main,new RegExp('<span>'+expected+'</span>'),language);assert.match(f.main,new RegExp('<h2>'+expected+'</h2>'),language+' inspector');}
+ for(const [language,expected]of [['tr','2 seçili'],['es','2 seleccionadas'],['zh-Hans','已选择 2 项'],['en','2 selected']]){f.api.emit({settings:{...f.state.settings,language}});await f.ready();assert.match(f.main,new RegExp('<span>'+expected+'</span>'),language);assert.match(f.main,new RegExp('<h2>'+expected+'</h2>'),language+' inspector');await f.click('add-to-folder');assert.match(f.overlay,new RegExp('<p>'+expected+' · '),language+' folder picker');await f.click('close-modal');}
 });

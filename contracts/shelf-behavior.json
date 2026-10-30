@@ -34,6 +34,12 @@
         "behavior": "Main-process notices (copy, export, import and error results) and the browsing-shortcut conflict message are shown in the language selected in Settings, using the shared catalog keys, including the \"Exported %d · failed %d\" and \"This shortcut is already used for %@\" templates with their real counts and action names.",
         "macos": "Notices and the shortcut conflict use L(...) and String(format:) with the shared Localizable.strings catalog.",
         "windows": "The renderer looks main-process notices up in the shared catalog, refills numeric templates, and formats the conflict with the catalog key; renderer-ui.test.cjs runs the shipped export through the Export shortcut in Turkish."
+      },
+      {
+        "id": "localized-selection-count",
+        "behavior": "The Library footer, the multi-selection details panel and the folder picker show the number of selected items with the shared \"%d selected\" catalog entry in the language selected in Settings.",
+        "macos": "LibraryWindow uses String(format: L(\"%d selected\"), count) for the footer and the multi-selection title.",
+        "windows": "The renderer formats the count with the shared \"%d selected\" catalog entry (selectedLabel); renderer-ui.test.cjs checks the footer, the details panel and the folder picker in Turkish, Spanish, Simplified Chinese and English."
       }
     ]
   },
