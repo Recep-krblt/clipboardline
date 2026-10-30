@@ -338,6 +338,10 @@ test('a background state push keeps keyboard focus on the focused dialog button 
  const again=buttons.filter(button=>button.dataset.action==='close-modal');again[1].focus();overlay.querySelectorAll=()=>{throw new SyntaxError('invalid selector');};
  f.api.emit({});await f.ready();assert.ok(overlay.innerHTML.includes('close-modal'),'the overlay is still rebuilt');
 });
+test('Library Last copied falls back to the creation time, so editing a never-copied item does not reorder it',async()=>{
+ const f=fixture();await f.ready();f.state.items[1].lastCopiedAt=950;f.state.items[2].updatedAt=5000;f.api.emit({items:f.state.items});await f.ready();await recent(f);
+ await f.change('sort-filter','copied');assert.deepEqual(cards(f),[f.image,f.text1,f.text2,f.link]);
+});
 test('Library domain filter ignores case, surrounding spaces and dots, www and an empty value like the native filter',async()=>{
  const f=fixture();await f.ready();f.state.items[0].tags=['x'];f.state.items.find(item=>item.id===f.link).retainedAt=1;f.api.emit({items:f.state.items});await f.ready();await savedLibrary(f);await f.click('toggle-filters');
  for(const value of ['example.com',' Example.COM ','WWW.example.com','.example.com.'])await f.input('domain-filter',value),assert.deepEqual(cards(f),[f.link],JSON.stringify(value));
