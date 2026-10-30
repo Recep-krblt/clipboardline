@@ -32,5 +32,9 @@ class OcrQueue {
   }
  }
 }
-module.exports={OcrQueue};
+function createOcrQueue(options){
+ const queue=new OcrQueue(options);
+ return {queue,queueOCR:id=>queue.enqueue(id)};
+}
+module.exports={OcrQueue,createOcrQueue};
 
