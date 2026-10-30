@@ -66,10 +66,16 @@ const entities = value => value.replace(/&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|
 });
 // Turkish pages are often still windows-1254 / ISO-8859-9; encoding sniffing order: BOM, header, XML declaration (XHTML only), early <meta charset>.
 function decodeHTML(bytes, type = '') {
-  const head = bytes.subarray(0, 2048).toString('latin1');
-  const label = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? 'utf-8' : /charset\s*=\s*["']?([\w.:-]+)/i.exec(type)?.[1] ||
-    (/application\/xhtml\+xml/i.test(type) ? /^\s*<\?xml[^>]*\sencoding\s*=\s*["']([\w.:-]+)/i.exec(head)?.[1] : '') || /<meta[^>]*[\s"';]charset\s*=\s*["']?([\w.:-]+)/i.exec(head)?.[1];
-  try { return new TextDecoder(label || 'utf-8', {fatal: !label}).decode(bytes); } catch {}
+  const head = bytes.subarray(0, 2048).toString('latin1'), known = label => { try { return new TextDecoder(label).encoding; } catch { return ''; } };
+  // Encoding sniffing order: BOM, Content-Type charset parameter, XML declaration (XHTML), meta charset; unknown labels fall through.
+  const declared = /<meta[^>]*[\s"';]charset\s*=\s*["']?([\w.:-]+)/i.exec(head)?.[1], label = [
+    bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? 'utf-8' : '',
+    /(?:^|;)\s*charset\s*=\s*["']?([\w.:-]+)/i.exec(type)?.[1],
+    /application\/xhtml\+xml/i.test(type) ? /^\s*<\?xml[^>]*\sencoding\s*=\s*["']([\w.:-]+)/i.exec(head)?.[1] : '',
+    // A meta declaration of UTF-16 cannot be true for ASCII-compatible markup; HTML treats it as UTF-8.
+    declared && /^utf-16/i.test(declared) ? 'utf-8' : declared
+  ].map(value => value && known(value)).find(Boolean);
+  if (label) return new TextDecoder(label).decode(bytes);
   try { return new TextDecoder('utf-8', {fatal: true}).decode(bytes); } catch { return new TextDecoder('windows-1252').decode(bytes); }
 }
 const collapse = value => value.replace(/\s+/g, ' ').trim();
