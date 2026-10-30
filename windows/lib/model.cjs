@@ -488,4 +488,3 @@ class Store {
   }
 }
 module.exports = {Store, KINDS, DEFAULTS, settings, saved, plainURL, text, ids, protectDirectory};
-
