@@ -248,7 +248,12 @@ class Store {
   async insertRecording(value){
     const assets=await this.recordingAssets(value),matching=this.data.items.filter(item=>item.recording&&!item.trashedAt&&item.videoFile===assets.videoFile),prior=matching.sort((a,b)=>b.createdAt-a.createdAt)[0];
     if(value.signal?.aborted)fail('Video operation canceled');
-    if(!prior&&this.data.items.length>=20000)fail('Library item limit reached');const before=clone(this.data),now=this.clock();
+    if(!prior&&this.data.items.length>=20000){
+      const error=new Error('Library item limit reached'),referenced=this.mediaReferences();
+      for(const filename of [assets.videoFile,assets.posterFile])if(MANAGED_MEDIA.test(filename)&&!referenced.has(filename))try{fs.unlinkSync(path.join(this.mediaDirectory,filename));}catch{}
+      throw error;
+    }
+    const before=clone(this.data),now=this.clock();
     try{
       const item=prior||{id:crypto.randomUUID(),kind:'image',recording:true,text:'',url:'',title:'',name:'',pinned:false,folderIds:[],tags:[],note:'',retainedAt:null,lastCopiedAt:null,createdAt:now,updatedAt:now,trashedAt:null,hiddenFromShelf:false,annotations:[],crop:null,ocrText:'',imageFile:assets.posterFile,renderedFile:'',videoFile:assets.videoFile,renderedVideoFile:'',...assets.details};
       item.createdAt=now;item.updatedAt=now;item.hiddenFromShelf=false;item.captureRevision=crypto.randomUUID();
