@@ -393,7 +393,7 @@ struct PublicLinkHTMLMetadata: Equatable, Sendable {
     private static let namedEntities = ["amp": "&", "quot": "\"", "lt": "<", "gt": ">", "apos": "'", "nbsp": " ", "ccedil": "ç", "Ccedil": "Ç", "ouml": "ö", "Ouml": "Ö", "uuml": "ü", "Uuml": "Ü", "gbreve": "ğ", "Gbreve": "Ğ", "scedil": "ş", "Scedil": "Ş", "inodot": "ı", "Idot": "İ", "acirc": "â", "icirc": "î", "ucirc": "û", "auml": "ä", "Auml": "Ä", "szlig": "ß", "eacute": "é", "Eacute": "É", "egrave": "è", "agrave": "à", "aacute": "á", "iacute": "í", "oacute": "ó", "uacute": "ú", "ntilde": "ñ", "ndash": "–", "mdash": "—", "hellip": "…", "lsquo": "‘", "rsquo": "’", "ldquo": "“", "rdquo": "”", "laquo": "«", "raquo": "»", "bull": "•", "middot": "·", "copy": "©", "reg": "®", "trade": "™", "euro": "€", "pound": "£"]
 
     private static func entities(_ value: String) -> String {
-        let named = namedEntities
+        let named = namedEntities, names = named.keys.joined(separator: "|")
         guard let regex = try? NSRegularExpression(pattern: #"&(#x[0-9A-Fa-f]{1,6}|#[0-9]{1,7}|\#(names));"#) else { return value }
         var result = value
         for match in regex.matches(in: value, range: NSRange(value.startIndex..., in: value)).reversed() {
