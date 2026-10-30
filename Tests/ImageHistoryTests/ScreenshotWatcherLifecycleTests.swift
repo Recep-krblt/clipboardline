@@ -23,7 +23,6 @@ final class ScreenshotWatcherLifecycleTests: XCTestCase {
         var baselineReady = false
 
         let watcher = ScreenshotWatcher(folder: folder, anyImage: true, onNew: { url in
-            NSLog("DEBUG test onNew path=\(url.path) marker=\(marker.path) next=\(nextCapture.path)")
             if url.standardizedFileURL.path == marker.standardizedFileURL.path { markerCaptured.fulfill() }
             if url.standardizedFileURL.path == nextCapture.standardizedFileURL.path { nextCaptureCaptured.fulfill() }
         }, onChange: {
