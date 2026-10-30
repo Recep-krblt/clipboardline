@@ -38,8 +38,13 @@ final class ScreenshotWatcherLifecycleTests: XCTestCase {
         }
         wait(for: [baselineScanned], timeout: 3)
 
+        let originalAttributes = try FileManager.default.attributesOfItem(atPath: folder.path)
+        let originalInode = try XCTUnwrap(originalAttributes[.systemFileNumber] as? NSNumber)
         try FileManager.default.moveItem(at: folder, to: moved)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let replacementAttributes = try FileManager.default.attributesOfItem(atPath: folder.path)
+        let replacementInode = try XCTUnwrap(replacementAttributes[.systemFileNumber] as? NSNumber)
+        XCTAssertNotEqual(originalInode, replacementInode, "the watched path must point at a replacement directory inode")
         try FileManager.default.copyItem(at: image, to: marker)
         wait(for: [markerCaptured], timeout: 3)
 
