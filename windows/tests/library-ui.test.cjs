@@ -334,6 +334,9 @@ test('a background state push keeps keyboard focus on the focused dialog button 
  assert.notEqual(rebuilt[1],cancels[1],'the overlay was rebuilt');assert.equal(f.document.activeElement,rebuilt[1],'focus returns to the same (footer) Cancel button');
  // A different dialog, or no focused button, must not steal focus.
  f.document.activeElement=f.document.body;f.api.emit({});await f.ready();assert.equal(f.document.activeElement,f.document.body);
+ // An unmatchable selector (for example a stored tag with a control character) must not stop the refresh.
+ const again=buttons.filter(button=>button.dataset.action==='close-modal');again[1].focus();overlay.querySelectorAll=()=>{throw new SyntaxError('invalid selector');};
+ f.api.emit({});await f.ready();assert.ok(overlay.innerHTML.includes('close-modal'),'the overlay is still rebuilt');
 });
 test('Library domain filter ignores case, surrounding spaces and dots, www and an empty value like the native filter',async()=>{
  const f=fixture();await f.ready();f.state.items[0].tags=['x'];f.state.items.find(item=>item.id===f.link).retainedAt=1;f.api.emit({items:f.state.items});await f.ready();await savedLibrary(f);await f.click('toggle-filters');
