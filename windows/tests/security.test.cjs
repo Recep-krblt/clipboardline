@@ -46,5 +46,7 @@ test('metadata titles decode numeric references and collapse layout whitespace',
  const page=html=>async()=>({bytes:Buffer.from(html),url:'https://example.com/',type:'text/html'});
  assert.equal((await linkMetadata('https://example.com',page('<title>\n  It&#8217;s &#x41;&nbsp;test\n</title>'))).title,'It’s A test');
  assert.equal((await linkMetadata('https://example.com',page('<meta property="og:title" content="A &amp;#39; B &#0; &#xD800;">'))).title,'A &#39; B &#0; &#xD800;');
+ assert.equal((await linkMetadata('https://example.com',page('<title>G&uuml;nl&uuml;k &mdash; &Ccedil;i&ccedil;ek&hellip;</title>'))).title,'Günlük — Çiçek…');
+ assert.equal((await linkMetadata('https://example.com',page('<meta property="og:title" content="It&rsquo;s &copy; &unknown; &UUML;">'))).title,'It’s © &unknown; &UUML;');
  assert.equal((await linkMetadata('https://example.com',page('<title>  </title>'))).title,'example.com');
 });
