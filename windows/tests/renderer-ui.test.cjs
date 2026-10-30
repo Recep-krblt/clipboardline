@@ -336,11 +336,12 @@ test('shared macOS/Windows shelf contract runs through actual renderer handlers'
    const source=f.state.items.find(value=>value.kind===entry.kind);
    return{...structuredClone(source),id,createdAt:10000-index,name:entry.kind==='image'?entry.text:'',text:entry.kind==='text'?entry.text:'',title:entry.kind==='link'?entry.text:'',url:entry.kind==='link'?'https://example.com/contract/'+entry.id:''};
   });
+  const kinds=new Map(contract.itemSets[scenario.itemSet].map(entry=>[entry.id,entry.kind]));
   f.api.emit({items:values,settings:{...f.state.settings,visibleKinds:scenario.visibleKinds}});await f.ready();
   for(const kind of scenario.pinnedOnlyKinds||[])await f.click('pinned-kind',{kind});
   await f.api.command('hide');await f.ready();
   for(let index=0;index<scenario.steps.length;index++){
-   const step=scenario.steps[index];const editor=f.nodes.get('search-input');if(editor)editor.matches=selector=>selector.includes('input');
+   const step=scenario.steps[index],commandsBefore=f.commands.length;const editor=f.nodes.get('search-input');if(editor)editor.matches=selector=>selector.includes('input');
    const searchEditing=/class="search-hud"/.test(f.main);
    if(step.action==='open')await f.api.command('show');
    else if(step.action==='close')await f.api.command('hide');
@@ -348,11 +349,14 @@ test('shared macOS/Windows shelf contract runs through actual renderer handlers'
    else if(step.action==='key')await f.key(step.code,searchEditing?{target:editor}:{});
    else if(['up','down','left','right'].includes(step.action))await f.key({up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight'}[step.action],searchEditing?{target:editor}:{});
    else if(step.action==='toggle')await f.key({image:'KeyI',text:'KeyT',link:'KeyL'}[step.kind],{shift:true});
+   else if(step.action==='switchShelf')await f.key('Tab');
+   else if(step.action==='command')await f.key(step.code,step.ctrl?{ctrl:true}:{});
    else if(step.action==='openSearch')await f.key('KeyS',{shift:true});
    else if(step.action==='finishSearch')await f.key('Enter',{target:editor});
    else throw new Error('Unsupported shared contract action: '+step.action);
    await f.ready();
-   const actual={activeKind:activeKind(f),focused:aliases.get(focusedCard(f))||null,selected:selectedCards(f).map(id=>aliases.get(id)||id).sort(),visibleKinds:[...f.main.matchAll(/<section class="shelf(?: active-shelf)?\s*" data-shelf="([^"]+)"/g)].map(match=>match[1]),searchEditing:/class="search-hud"/.test(f.main)};
+   const active=activeKind(f),focusedAlias=aliases.get(focusedCard(f)),actual={activeKind:active,focused:kinds.get(focusedAlias)===active?focusedAlias:null,selected:selectedCards(f).map(id=>aliases.get(id)||id).sort(),visibleKinds:[...f.main.matchAll(/<section class="shelf(?: active-shelf)?\s*" data-shelf="([^"]+)"/g)].map(match=>match[1]),searchEditing:/class="search-hud"/.test(f.main)};
+   if(step.action==='command')actual.effects=[...f.commands.slice(commandsBefore).map(value=>value.action),...(f.overlay?['preview']:[])];
    observations.push({scenarioId:scenario.id,step:index,actual});
    try{assert.deepEqual(actual,step.expect);}catch(error){errors.push(scenario.id+' step '+index+': '+error.message);}
   }
@@ -750,7 +754,7 @@ test('Tab onto an empty shelf leaves copy, take down, pin and preview with nothi
  const f=fixture();await f.ready();f.api.emit({items:f.state.items.filter(value=>value.kind!=='text')});await f.ready();
  await f.key('Tab');assert.equal(activeKind(f),'text');const commands=f.commands.length;
  for(const [code,extra]of [['Enter',{}],['KeyS',{}],['KeyP',{}],['Space',{}],['KeyC',{ctrl:true}]])await f.key(code,extra);
- assert.deepEqual(f.commands.slice(commands).filter(command=>command.payload.ids?.length),[]);assert.equal(f.overlay,'');assert.equal(f.state.items.find(value=>value.id===f.image).trashedAt,null);assert.equal(f.state.windowVisible,true);
+ assert.deepEqual(f.commands.slice(commands),[]);assert.equal(f.overlay,'');assert.equal(f.state.items.find(value=>value.id===f.image).trashedAt,null);assert.equal(f.state.windowVisible,true);
 });
 for(const row of [{code:'ArrowUp',key:'ArrowUp',saved:'Control+Alt+Up'},{code:'ArrowLeft',key:'ArrowLeft',shift:true,saved:'Control+Alt+Shift+Left'},{code:'Equal',key:'+',shift:true,saved:'Control+Alt+Shift+Plus'}])test('global recorder saves Electron accelerator names for DOM-only keys: '+JSON.stringify(row),async()=>{
  const f=fixture();await f.ready();await f.api.command('settings');await f.ready();await f.click('record-global',{keyAction:'search'});
