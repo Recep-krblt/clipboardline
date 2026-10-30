@@ -4,7 +4,7 @@ const path=require('node:path');
 
 // Windows opens these device names whatever follows the first dot, so a copy
 // named "con" would report success and leave no file on disk.
-const RESERVED=/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?=\.|$)/i;
+const RESERVED=/^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?=\.|$)/i;
 
 // Match the Mac export: keep copying after one failure, then report both
 // counts with the shared "Exported %d · failed %d" catalog template.

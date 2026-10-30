@@ -16,8 +16,8 @@ const exported=async items=>{
 };
 
 test('does not export a copy under a Windows device name',async()=>{
-  const names=await exported(['con','NUL','Com1','lpt9','aux.notes'].map(name=>({kind:'text',name,text:'body'})));
-  assert.deepEqual(names,['_Com1.txt','_NUL.txt','_aux.notes.txt','_con.txt','_lpt9.txt']);
+  const names=await exported(['con','NUL','Com1','lpt9','aux.notes','COM¹','lpt³'].map(name=>({kind:'text',name,text:'body'})));
+  assert.deepEqual(names,['_COM¹.txt','_Com1.txt','_NUL.txt','_aux.notes.txt','_con.txt','_lpt9.txt','_lpt³.txt']);
 });
 
 test('keeps names that only start like a device name',async()=>{
