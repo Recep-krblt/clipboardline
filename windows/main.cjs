@@ -29,7 +29,7 @@ const {metadataFetch,linkMetadata} = require('./lib/network.cjs');
 const {Updates,AutomaticUpdateScheduler} = require('./lib/updates.cjs');
 const {GlobalShortcuts}=require('./lib/global-shortcuts.cjs');
 const {ImageSearch,modelPaths}=require('./lib/image-search.cjs');
-const {OcrQueue}=require('./lib/ocr-queue.cjs');
+const {createOcrQueue}=require('./lib/ocr-queue.cjs');
 const {StatusTray,trayIcon,translated}=require('./lib/status-summary.cjs');
 const {WindowBounds}=require('./lib/window-bounds.cjs');
 const {MotionBridge}=require('./lib/shelf-motion.cjs');
@@ -54,13 +54,13 @@ const entry = pathToFileURL(path.join(__dirname,'index.html')).href;
 const copyMarker = crypto.randomBytes(16);
 const pending = new Map();
 const ocrJobs=new Map();
-const ocrQueue=new OcrQueue({
+const {queue:ocrQueue,queueOCR}=createOcrQueue({
  enabled:()=>!testMode&&!!store?.data.settings.indexImages,
  closing:()=>closing,
  process:async next=>{
   const item=store.data.items.find(i=>i.id===next);if(!item||item.trashedAt||item.ocrText)return;
   const fingerprint=item.renderedFile||item.imageFile;try{await ocr(next,true);}catch{}
-  if(store.data.items.includes(item)&&(item.renderedFile||item.imageFile)!==fingerprint)ocrQueue.enqueue(next);
+  if(store.data.items.includes(item)&&(item.renderedFile||item.imageFile)!==fingerprint)queueOCR(next);
  }
 });
 const mediaDiagnostics=[];
@@ -272,7 +272,6 @@ async function capture() {
     const item=store.insert('image',source.thumbnail.toPNG());queueOCR(item.id);refreshImageSearch();await show('shelves',{selectId:item.id,kind:'image',preview:true,crop:true});return{id:item.id};
   }catch(error){if(wasVisible)await show(view);throw error;}
 }
-function queueOCR(id){ocrQueue.enqueue(id);}
 async function ocr(id,quiet=false){if(ocrJobs.has(id))return ocrJobs.get(id);const promise=recognize(id,quiet);ocrJobs.set(id,promise);try{return await promise;}finally{ocrJobs.delete(id);}}
 async function recognize(id,quiet=false) {
   const item=store.item(id);if(item.kind!=='image'||item.recording)throw new Error('OCR requires a still image');
