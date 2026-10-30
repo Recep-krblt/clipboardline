@@ -63,9 +63,11 @@ const entities = value => value.replace(/&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|
   const code = decimal ? Number(decimal) : parseInt(hex, 16);
   return code > 0x1f && code <= 0x10ffff && !(code >= 0x7f && code <= 0x9f) && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : match;
 });
-// Turkish pages are often still windows-1254 / ISO-8859-9; honor the header, a BOM, then an early <meta charset>.
+// Turkish pages are often still windows-1254 / ISO-8859-9; encoding sniffing order: BOM, header, XML declaration (XHTML only), early <meta charset>.
 function decodeHTML(bytes, type = '') {
-  const label = /charset\s*=\s*["']?([\w.:-]+)/i.exec(type)?.[1] || (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? 'utf-8' : /<meta[^>]+charset\s*=\s*["']?([\w.:-]+)/i.exec(bytes.subarray(0, 2048).toString('latin1'))?.[1]);
+  const head = bytes.subarray(0, 2048).toString('latin1');
+  const label = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? 'utf-8' : /charset\s*=\s*["']?([\w.:-]+)/i.exec(type)?.[1] ||
+    (/application\/xhtml\+xml/i.test(type) ? /^\s*<\?xml[^>]*\sencoding\s*=\s*["']([\w.:-]+)/i.exec(head)?.[1] : '') || /<meta[^>]*[\s"';]charset\s*=\s*["']?([\w.:-]+)/i.exec(head)?.[1];
   try { return new TextDecoder(label || 'utf-8', {fatal: !label}).decode(bytes); } catch {}
   try { return new TextDecoder('utf-8', {fatal: true}).decode(bytes); } catch { return new TextDecoder('windows-1252').decode(bytes); }
 }
