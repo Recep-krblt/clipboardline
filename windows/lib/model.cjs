@@ -308,7 +308,13 @@ class Store {
     const matching = this.data.items.filter(i => i.kind === kind && !i.trashedAt &&
       (kind === 'text' ? this.textIdentity(i) === identity : kind === 'link' ? i.url === url : !i.recording&&i.imageFile === imageFile));
     const prior = matching.sort((a, b) => b.updatedAt - a.updatedAt)[0];
-    if(!prior&&this.data.items.length>=20000)fail('Library item limit reached');
+    if(!prior&&this.data.items.length>=20000){
+      if(kind==='image'){
+        const referenced=this.mediaReferencesForCapacityCleanup();
+        if(referenced&&!referenced.has(imageFile)&&MANAGED_MEDIA.test(imageFile))try{fs.unlinkSync(path.join(this.mediaDirectory,imageFile));}catch{}
+      }
+      fail('Library item limit reached');
+    }
     const now = this.clock();
     const item = prior || {id: crypto.randomUUID(), kind, text: textValue, url, title: '', name: '', pinned: false, folderIds: [], tags: [],
       imageFile, renderedFile: '', ocrText: '', annotations: [], crop: null, note:'', retainedAt:null, lastCopiedAt:null, createdAt: now, updatedAt: now, trashedAt: null, hiddenFromShelf: false};
