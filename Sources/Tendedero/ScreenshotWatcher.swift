@@ -181,6 +181,7 @@ final class ScreenshotWatcher {
 
     private func startIdentityMonitor() {
         guard identityTimer == nil else { return }
+        NSLog("DEBUG identity timer starting")
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + .seconds(1), repeating: .seconds(1), leeway: .milliseconds(100))
         timer.setEventHandler { [weak self] in self?.readFolderIdentity() }
@@ -196,6 +197,7 @@ final class ScreenshotWatcher {
     }
 
     private func readFolderIdentity() {
+        NSLog("DEBUG identity check stopped=\(stopped) inFlight=\(identityCheckInFlight)")
         guard !stopped, !identityCheckInFlight else { return }
         identityCheckInFlight = true
         let expectedGeneration = generation
@@ -204,6 +206,7 @@ final class ScreenshotWatcher {
             let identity = self.identityOfFolder()
             DispatchQueue.main.async {
                 self.identityCheckInFlight = false
+                NSLog("DEBUG identity result available=\(identity != nil) same=\(identity == self.folderIdentity) expected=\(expectedGeneration) actual=\(self.generation)")
                 guard !self.stopped, expectedGeneration == self.generation else { return }
                 self.reconcileFolder(identity)
             }
@@ -211,6 +214,7 @@ final class ScreenshotWatcher {
     }
 
     private func reconcileFolder(_ currentIdentity: FolderIdentity?) {
+        NSLog("DEBUG reconcile identity changed=\(currentIdentity != folderIdentity)")
         guard !stopped else { return }
         guard currentIdentity != folderIdentity else { return }
         folderIdentity = currentIdentity
