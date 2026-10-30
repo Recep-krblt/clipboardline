@@ -39,7 +39,8 @@ async function boundedFetch(input, {maximum = 512 * 1024, redirects = 3, resolve
     }, response => {
       if ([301,302,303,307,308].includes(response.statusCode)) {
         response.resume(); if (!redirects || !response.headers.location) { reject(new Error('Too many redirects')); return; }
-        boundedFetch(new URL(response.headers.location, url).href, {maximum, redirects: redirects - 1, resolver, timeout,guard}).then(resolve, reject); return;
+        let next; try { next = new URL(response.headers.location, url).href; } catch { reject(new Error('Invalid redirect location')); return; }
+        boundedFetch(next, {maximum, redirects: redirects - 1, resolver, timeout,guard}).then(resolve, reject); return;
       }
       if (response.statusCode !== 200 || Number(response.headers['content-length'] || 0) > maximum) { response.destroy(); reject(new Error('Remote response is unavailable or too large')); return; }
       const blocks = []; let length = 0;
