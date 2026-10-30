@@ -130,6 +130,7 @@ final class ScreenshotWatcher {
     /// Starts the child watcher before listing so a capture that lands in
     /// between is not lost.
     private func watch(_ fd: Int32, generation expectedGeneration: Int, identity expectedIdentity: FolderIdentity?) {
+        NSLog("DEBUG watch fd=\(fd) expectedGeneration=\(expectedGeneration) generation=\(generation) identityMatches=\(expectedIdentity == folderIdentity)")
         starting = false
         guard !stopped else {
             if fd >= 0 { close(fd) }
@@ -159,6 +160,7 @@ final class ScreenshotWatcher {
     }
 
     private func openFolderIfAvailable() {
+        NSLog("DEBUG openFolder stopped=\(stopped) sourceNil=\(source == nil) starting=\(starting) listing=\(listing) hasIdentity=\(folderIdentity != nil) generation=\(generation)")
         guard !stopped, source == nil, !starting, !listing, folderIdentity != nil else { return }
         starting = true
         let expectedGeneration = generation
@@ -272,6 +274,7 @@ final class ScreenshotWatcher {
         }
         listing = true
         let requestedGeneration = generation
+        NSLog("DEBUG refresh started generation=\(requestedGeneration)")
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             let files = self.listFolder()
@@ -287,6 +290,7 @@ final class ScreenshotWatcher {
     /// that was asked for while this one was in flight.
     private func adopt(_ files: [URL], _ settled: [URL], _ candidates: [URL], generation requestedGeneration: Int) {
         listing = false
+        NSLog("DEBUG adopt requestedGeneration=\(requestedGeneration) generation=\(generation) files=\(files.count) stopped=\(stopped)")
         guard !stopped else { return }
         guard requestedGeneration == generation else {
             openFolderIfAvailable()
