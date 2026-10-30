@@ -14,6 +14,7 @@ final class ScreenshotWatcherLifecycleTests: XCTestCase {
         let fixture = try SyntheticFixture(folderRoot: root)
         defer { fixture.cleanup() }
         let image = try fixture.image(owned: false)
+        let imageData = try Data(contentsOf: image)
         let marker = folder.appendingPathComponent("replacement-marker.png")
         let nextCapture = folder.appendingPathComponent("next-capture.png")
         let baselineScanned = expectation(description: "initial watcher scan completed")
@@ -48,10 +49,10 @@ final class ScreenshotWatcherLifecycleTests: XCTestCase {
         let replacementInode = try XCTUnwrap(replacementAttributes[.systemFileNumber] as? NSNumber)
         XCTAssertEqual(originalDevice, replacementDevice)
         XCTAssertNotEqual(originalInode, replacementInode, "the watched path must point at a replacement directory inode")
-        try FileManager.default.copyItem(at: image, to: marker)
+        try imageData.write(to: marker)
         wait(for: [markerCaptured], timeout: 3)
 
-        try FileManager.default.copyItem(at: image, to: nextCapture)
+        try imageData.write(to: nextCapture)
         wait(for: [nextCaptureCaptured], timeout: 2)
     }
 }
