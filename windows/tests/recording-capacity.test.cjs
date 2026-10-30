@@ -87,4 +87,3 @@ test('capacity cleanup skips deletion when the recovery backup cannot be read',a
   assert.ok(fs.readdirSync(store.mediaDirectory).some(name=>name.endsWith('.png')));
  }finally{fs.rmSync(data,{recursive:true,force:true});}
 });
-
