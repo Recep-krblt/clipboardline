@@ -29,6 +29,7 @@ const {metadataFetch,linkMetadata} = require('./lib/network.cjs');
 const {Updates,AutomaticUpdateScheduler} = require('./lib/updates.cjs');
 const {GlobalShortcuts}=require('./lib/global-shortcuts.cjs');
 const {ImageSearch,modelPaths}=require('./lib/image-search.cjs');
+const {createOcrQueue}=require('./lib/ocr-queue.cjs');
 const {StatusTray,trayIcon,translated}=require('./lib/status-summary.cjs');
 const {WindowBounds}=require('./lib/window-bounds.cjs');
 const {MotionBridge}=require('./lib/shelf-motion.cjs');
@@ -52,7 +53,16 @@ const pasteTargets=new PasteTargetTracker(process.pid);
 const entry = pathToFileURL(path.join(__dirname,'index.html')).href;
 const copyMarker = crypto.randomBytes(16);
 const pending = new Map();
-const ocrJobs=new Map(),ocrQueue=[];let indexing=false;
+const ocrJobs=new Map();
+const {queue:ocrQueue,queueOCR}=createOcrQueue({
+ enabled:()=>!testMode&&!!store?.data.settings.indexImages,
+ closing:()=>closing,
+ process:async next=>{
+  const item=store.data.items.find(i=>i.id===next);if(!item||item.trashedAt||item.ocrText)return;
+  const fingerprint=item.renderedFile||item.imageFile;try{await ocr(next,true);}catch{}
+  if(store.data.items.includes(item)&&(item.renderedFile||item.imageFile)!==fingerprint)queueOCR(next);
+ }
+});
 const mediaDiagnostics=[];
 let imageSearch,imageSearchTimer,dragFiles,mediaJobs;
 const recordingTrims=new Map();
@@ -262,7 +272,6 @@ async function capture() {
     const item=store.insert('image',source.thumbnail.toPNG());queueOCR(item.id);refreshImageSearch();await show('shelves',{selectId:item.id,kind:'image',preview:true,crop:true});return{id:item.id};
   }catch(error){if(wasVisible)await show(view);throw error;}
 }
-function queueOCR(id){if(testMode||!store.data.settings.indexImages||ocrQueue.includes(id)||ocrQueue.length>=64)return;ocrQueue.push(id);if(indexing)return;indexing=true;setImmediate(async()=>{try{while(ocrQueue.length&&!closing){const next=ocrQueue.shift(),item=store.data.items.find(i=>i.id===next);if(!item||item.trashedAt||item.ocrText)continue;const fingerprint=item.renderedFile||item.imageFile;try{await ocr(next,true);}catch{}if(store.data.items.includes(item)&&(item.renderedFile||item.imageFile)!==fingerprint&&!ocrQueue.includes(next))ocrQueue.push(next);}}finally{indexing=false;}});}
 async function ocr(id,quiet=false){if(ocrJobs.has(id))return ocrJobs.get(id);const promise=recognize(id,quiet);ocrJobs.set(id,promise);try{return await promise;}finally{ocrJobs.delete(id);}}
 async function recognize(id,quiet=false) {
   const item=store.item(id);if(item.kind!=='image'||item.recording)throw new Error('OCR requires a still image');
@@ -375,8 +384,9 @@ async function command(action,payload={}) {
     if(payload.recordingToken!==undefined){if(typeof payload.recordingToken!=='string')throw new Error('Invalid shortcut recorder.');finishShortcutRecording(payload.recordingToken);}
     const patch={...payload.patch};
     if(Object.hasOwn(patch,'watchFolders'))throw new Error('Choose watched folders with the folder picker.');
+    const wasIndexingImages=!!store.data.settings.indexImages;
     const previousShortcuts={...store.data.settings.shortcuts};
-    store.modify('setSettings',{patch});if(Object.hasOwn(patch,'retentionDays'))refreshImageSearch();if(Object.hasOwn(patch,'shortcuts')&&configureShortcuts(previousShortcuts).length)result={error:message};
+    store.modify('setSettings',{patch});if(wasIndexingImages&&!store.data.settings.indexImages)ocrQueue.discardPending();if(Object.hasOwn(patch,'retentionDays'))refreshImageSearch();if(Object.hasOwn(patch,'shortcuts')&&configureShortcuts(previousShortcuts).length)result={error:message};
     if(['captureText','captureImages','captureLinks'].some(key=>Object.hasOwn(patch,key)))lastFingerprint='';
     if(Object.hasOwn(patch,'launchAtLogin')&&!testMode)app.setLoginItemSettings({openAtLogin:patch.launchAtLogin});
     if(Object.hasOwn(patch,'autoCheckUpdates')&&patch.autoCheckUpdates&&!development)void updateScheduler.tick({force:true});
