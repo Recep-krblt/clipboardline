@@ -44,9 +44,10 @@ entry missing either platform. `localized-notices` requires notices and the
 shortcut-conflict message to follow the selected language, including refilled
 templates such as `Exported %d · failed %d`. Its Windows evidence is the
 renderer test that runs the shipped export through the Export shortcut.
-`localized-selection-count` requires the Library footer, the multi-selection
-details panel and the folder picker to show the count with the localized
-`%d selected` entry.
+`localized-selection-count` requires the Library footer and the multi-selection
+details panel to show the count with the localized `%d selected` entry. The
+Windows folder picker uses the same entry; the macOS folder picker keeps its own
+`Pin %d items to a folder` heading.
 
 The adapters execute application behavior:
 
