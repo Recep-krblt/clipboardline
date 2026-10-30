@@ -55,3 +55,23 @@ test('background OCR stops after the active image when indexing is disabled',asy
  assert.equal(scheduled.length,0);
 });
 
+
+
+test('discarding pending OCR on disable survives re-enable before the active image finishes',async()=>{
+ const scheduled=[],processed=[];let enabled=true,finishActive,activeStarted;
+ const started=new Promise(resolve=>{activeStarted=resolve;});
+ const queue=new OcrQueue({enabled:()=>enabled,closing:()=>false,schedule:work=>scheduled.push(work),process:id=>{
+  processed.push(id);
+  if(id==='image-a')return new Promise(resolve=>{finishActive=resolve;activeStarted();});
+ }});
+ for(const id of ['image-a','image-b','image-c'])assert.equal(queue.enqueue(id),true);
+ const drain=scheduled.shift()();
+ await started;
+ enabled=false;queue.discardPending();
+ enabled=true;
+ finishActive();
+ await drain;
+ assert.deepEqual(processed,['image-a']);
+ assert.equal(queue.size,0);
+ assert.equal(scheduled.length,0);
+});
