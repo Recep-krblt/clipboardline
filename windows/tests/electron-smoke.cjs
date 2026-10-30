@@ -158,6 +158,7 @@ async function main(){
   await shortcutParity({page,application,check,until,output});
   await libraryPreview({page,application,check,until,output,waitForCropBox});
   await libraryKeyboardAcceptance({page,application,check,until,output});
+  await require('./settings-toggle-focus-acceptance.cjs')({page,until,check});
   await textPreview({page,application,check,until,output});
   await scrollStateAcceptance({page,application,check,until,output});
   await libraryFolderDrag({page,application,check,until,output});
