@@ -13,6 +13,7 @@ class OcrQueue {
   if(this.head>=64&&this.head*2>=this.items.length){this.items=this.items.slice(this.head);this.head=0;}
   return id;
  }
+ discardPending(){this.items=[];this.head=0;this.pending.clear();}
  get size(){return this.items.length-this.head;}
  drainSoon(){
   if(this.indexing||!this.size||!this.enabled()||this.closing())return;
